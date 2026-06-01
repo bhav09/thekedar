@@ -30,13 +30,20 @@ class Settings(BaseSettings):
 
     # Pub/Sub — use emulator locally
     pubsub_project_id: str | None = Field(default=None, alias="THEKEDAR_PUBSUB_PROJECT_ID")
-    pubsub_emulator_host: str | None = Field(
-        default=None, alias="PUBSUB_EMULATOR_HOST"
-    )
+    pubsub_emulator_host: str | None = Field(default=None, alias="PUBSUB_EMULATOR_HOST")
     inbound_topic: str = Field(
         default="thekedar.inbound.messages",
         alias="THEKEDAR_INBOUND_TOPIC",
     )
+    inbound_subscription: str = Field(
+        default="thekedar.inbound.messages-worker",
+        alias="THEKEDAR_INBOUND_SUBSCRIPTION",
+    )
+
+    # Outbound messaging (M2)
+    slack_bot_token: SecretStr | None = Field(default=None, alias="SLACK_BOT_TOKEN")
+    whatsapp_access_token: SecretStr | None = Field(default=None, alias="WHATSAPP_ACCESS_TOKEN")
+    whatsapp_phone_number_id: str | None = Field(default=None, alias="WHATSAPP_PHONE_NUMBER_ID")
 
     # Webhook verification (M2)
     slack_signing_secret: str | None = Field(default=None, alias="SLACK_SIGNING_SECRET")

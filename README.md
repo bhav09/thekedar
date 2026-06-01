@@ -4,9 +4,11 @@ Headless MCP Orchestrator — connect WhatsApp, Slack, Jira, GitHub, and Cloud W
 
 ## Status
 
-**M1** — MCP policy engine, `thekedar mcp ping github` CLI, Bifrost docker-compose + K8s/Terraform skeleton.
+**M2** — Async webhook pipeline (Slack + WhatsApp), LangGraph orchestrator worker, Dashboard D0.
 
-**M0** — Foundation scaffold with deployable `webhook-ingress` service (`/health`, `/ready`).
+**M1** — MCP policy engine, `thekedar mcp ping github`, Bifrost scaffolding.
+
+**M0** — Foundation scaffold with deployable `webhook-ingress` service.
 
 ## Quick start (local dev)
 

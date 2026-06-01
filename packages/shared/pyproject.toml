@@ -7,6 +7,10 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.6",
     "starlette>=0.41",
+    "redis>=5.2",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "google-cloud-pubsub>=2.27",
 ]
 
 [build-system]

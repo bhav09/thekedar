@@ -12,6 +12,9 @@ workspace = { members = [
     "packages/webhook-ingress",
     "packages/mcp-policy",
     "packages/cli",
+    "packages/message-adapter",
+    "packages/orchestrator",
+    "packages/dashboard-hub",
 ] }
 
 [dependency-groups]
@@ -31,6 +34,9 @@ pythonpath = [
     "packages/webhook-ingress/src",
     "packages/mcp-policy/src",
     "packages/cli/src",
+    "packages/message-adapter/src",
+    "packages/orchestrator/src",
+    "packages/dashboard-hub/src",
 ]
 
 [tool.ruff]

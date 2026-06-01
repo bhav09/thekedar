@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Thekedar Dashboard</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; background: #0f1117; color: #e6edf3; }
+    body { margin: 0; padding: 1.5rem; }
+    h1 { margin-top: 0; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; }
+    .card h2 { margin: 0 0 .75rem; font-size: 1rem; color: #58a6ff; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
+    .pill { display: inline-block; padding: .15rem .5rem; border-radius: 999px; background: #238636; font-size: .75rem; }
+  </style>
+</head>
+<body>
+  <h1>Thekedar <span class="pill" id="ws-status">connecting</span></h1>
+  <div class="grid">
+    <div class="card"><h2>Active Runs</h2><pre id="active-runs">Loading…</pre></div>
+    <div class="card"><h2>Pending Approvals</h2><pre id="pending-approvals">Loading…</pre></div>
+    <div class="card"><h2>Workstation Health</h2><pre id="workstation-health">Loading…</pre></div>
+  </div>
+  <script>
+    async function loadWidget(path, elId) {
+      const res = await fetch(`/api/v1/widgets/${path}`);
+      const data = await res.json();
+      document.getElementById(elId).textContent = JSON.stringify(data.items, null, 2);
+    }
+    async function refresh() {
+      await Promise.all([
+        loadWidget('active-runs', 'active-runs'),
+        loadWidget('pending-approvals', 'pending-approvals'),
+        loadWidget('workstation-health', 'workstation-health'),
+      ]);
+    }
+    refresh();
+    setInterval(refresh, 5000);
+
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`);
+    ws.onopen = () => { document.getElementById('ws-status').textContent = 'live'; };
+    ws.onclose = () => { document.getElementById('ws-status').textContent = 'offline'; };
+  </script>
+</body>
+</html>

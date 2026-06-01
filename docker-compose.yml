@@ -43,6 +43,33 @@ services:
       redis:
         condition: service_healthy
 
+  orchestrator-worker:
+    build:
+      context: .
+      dockerfile: infra/docker/orchestrator.Dockerfile
+    environment:
+      THEKEDAR_ENVIRONMENT: local
+      THEKEDAR_REDIS_URL: redis://redis:6379/0
+      THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  dashboard-hub:
+    build:
+      context: .
+      dockerfile: infra/docker/dashboard-hub.Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      THEKEDAR_ENVIRONMENT: local
+      THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   bifrost:
     image: maximhq/bifrost:latest
     ports:
