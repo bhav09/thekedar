@@ -45,4 +45,6 @@ credentials.json
 service-account*.json
 .cursor/plans/
 .thekedar_run_marker
+.github/
+
 
