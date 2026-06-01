@@ -1,0 +1,19 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "client": {
+    "drop_excess_requests": false
+  },
+  "config_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": {
+      "path": "./data/config.db"
+    }
+  },
+  "logs_store": {
+    "enabled": false
+  },
+  "mcp": {
+    "client_configs": []
+  }
+}

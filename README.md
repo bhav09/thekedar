@@ -4,6 +4,8 @@ Headless MCP Orchestrator — connect WhatsApp, Slack, Jira, GitHub, and Cloud W
 
 ## Status
 
+**M1** — MCP policy engine, `thekedar mcp ping github` CLI, Bifrost docker-compose + K8s/Terraform skeleton.
+
 **M0** — Foundation scaffold with deployable `webhook-ingress` service (`/health`, `/ready`).
 
 ## Quick start (local dev)
@@ -21,8 +23,12 @@ uv run pytest tests/unit -v
 uv run thekedar-webhook-ingress
 # → http://localhost:8080/health
 
-# Full local stack (Postgres + Redis + API)
+# Verify MCP registry + policy (M1)
+uv run thekedar mcp ping github
+
+# Full local stack (Postgres + Redis + API + Bifrost)
 docker compose up --build
+# → Bifrost UI http://localhost:8090
 ```
 
 ## Project structure

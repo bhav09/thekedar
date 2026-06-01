@@ -1,0 +1,124 @@
+# Bifrost MCP gateway + GitHub MCP sidecar (staging)
+# Apply: kubectl apply -f infra/k8s/staging/ -n thekedar
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: thekedar
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thekedar-mcp-secrets
+  namespace: thekedar
+type: Opaque
+stringData:
+  # Replace via External Secrets / Secret Manager in production
+  GITHUB_TOKEN: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bifrost-gateway
+  namespace: thekedar
+  labels:
+    app: bifrost-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bifrost-gateway
+  template:
+    metadata:
+      labels:
+        app: bifrost-gateway
+    spec:
+      containers:
+        - name: bifrost
+          image: maximhq/bifrost:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: APP_HOST
+              value: "0.0.0.0"
+            - name: APP_PORT
+              value: "8080"
+            - name: LOG_STYLE
+              value: "json"
+          volumeMounts:
+            - name: bifrost-config
+              mountPath: /app/config
+            - name: bifrost-data
+              mountPath: /app/data
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+        - name: github-mcp
+          image: ghcr.io/github/github-mcp-server:v1.1.2
+          env:
+            - name: GITHUB_PERSONAL_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: thekedar-mcp-secrets
+                  key: GITHUB_TOKEN
+          # Stdio MCP — Bifrost connects via shared network namespace / localhost bridge in M1.1
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: bifrost-config
+          configMap:
+            name: bifrost-config
+        - name: bifrost-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifrost-config
+  namespace: thekedar
+data:
+  config.json: |
+    {
+      "$schema": "https://www.getbifrost.ai/schema",
+      "config_store": {
+        "enabled": true,
+        "type": "sqlite",
+        "config": { "path": "/app/data/config.db" }
+      },
+      "mcp": { "client_configs": [] }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bifrost-gateway
+  namespace: thekedar
+spec:
+  selector:
+    app: bifrost-gateway
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  type: ClusterIP

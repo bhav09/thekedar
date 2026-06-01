@@ -1,2 +1,14 @@
-# MCP server registry — pin images by digest in production (M1)
-servers: []
+# Production MCP registry — pin digest after: docker inspect --format='{{index .RepoDigests 0}}' IMAGE
+servers:
+  - name: github
+    image: ghcr.io/github/github-mcp-server:v1.1.2
+    # Replace with immutable digest before prod deploy:
+    # digest: sha256:...
+    toolsets:
+      - context
+      - repos
+      - issues
+      - pull_requests
+      - actions
+    transport: http
+    allowed_tools: []

@@ -1,2 +1,11 @@
-# Local dev MCP config (M1)
-servers: []
+# Local dev overrides — merge mentally with mcp-servers.yaml when testing
+servers:
+  - name: github
+    image: ghcr.io/github/github-mcp-server:v1.1.2
+    toolsets:
+      - context
+      - repos
+      - issues
+      - pull_requests
+    transport: stdio
+    allowed_tools: []

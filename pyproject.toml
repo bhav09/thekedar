@@ -7,7 +7,12 @@ requires-python = ">=3.12"
 dependencies = []
 
 [tool.uv]
-workspace = { members = ["packages/shared", "packages/webhook-ingress"] }
+workspace = { members = [
+    "packages/shared",
+    "packages/webhook-ingress",
+    "packages/mcp-policy",
+    "packages/cli",
+] }
 
 [dependency-groups]
 dev = [
@@ -21,7 +26,12 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["packages/shared/src", "packages/webhook-ingress/src"]
+pythonpath = [
+    "packages/shared/src",
+    "packages/webhook-ingress/src",
+    "packages/mcp-policy/src",
+    "packages/cli/src",
+]
 
 [tool.ruff]
 line-length = 100
@@ -33,4 +43,4 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["thekedar_shared", "thekedar_webhook_ingress"]
+packages = ["thekedar_shared", "thekedar_webhook_ingress", "thekedar_mcp_policy", "thekedar_cli"]

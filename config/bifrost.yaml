@@ -1,2 +1,11 @@
-# Bifrost gateway config (M1)
-# See https://docs.getbifrost.ai
+# Bifrost operator notes — runtime config is config/bifrost/config.json
+# Docs: https://docs.getbifrost.ai/mcp/overview
+#
+# Register GitHub MCP after gateway starts (local):
+#   curl -X POST http://localhost:8090/api/mcp/client -H "Content-Type: application/json" -d @config/bifrost/github-mcp-client.json
+#
+# Production: use GKE deployment in infra/k8s/staging/ and Terraform module gke-bifrost
+
+image: maximhq/bifrost:latest
+port: 8080
+mcp_endpoint: /mcp

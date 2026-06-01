@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     slack_signing_secret: str | None = Field(default=None, alias="SLACK_SIGNING_SECRET")
     whatsapp_app_secret: str | None = Field(default=None, alias="WHATSAPP_APP_SECRET")
     whatsapp_verify_token: str | None = Field(default=None, alias="WHATSAPP_VERIFY_TOKEN")
+
+    # MCP gateway (M1+)
+    bifrost_url: str = Field(default="http://localhost:8090", alias="THEKEDAR_BIFROST_URL")
+    github_token: SecretStr | None = Field(default=None, alias="GITHUB_TOKEN")
+    mcp_registry_path: str = Field(
+        default="config/mcp-servers.yaml",
+        alias="THEKEDAR_MCP_REGISTRY_PATH",
+    )
 
 
 @lru_cache

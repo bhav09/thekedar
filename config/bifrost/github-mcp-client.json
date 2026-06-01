@@ -1,0 +1,7 @@
+{
+  "name": "github",
+  "connection_type": "http",
+  "connection_string": "https://api.githubcopilot.com/mcp/",
+  "auth_type": "bearer",
+  "tools_to_execute": ["*"]
+}
