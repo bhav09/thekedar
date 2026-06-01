@@ -35,6 +35,7 @@ services:
       - "8080:8080"
     environment:
       THEKEDAR_ENVIRONMENT: local
+      THEKEDAR_DEMO_MODE: "true"
       THEKEDAR_REDIS_URL: redis://redis:6379/0
       THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
     depends_on:
@@ -49,13 +50,29 @@ services:
       dockerfile: infra/docker/orchestrator.Dockerfile
     environment:
       THEKEDAR_ENVIRONMENT: local
+      THEKEDAR_DEMO_MODE: "true"
       THEKEDAR_REDIS_URL: redis://redis:6379/0
       THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+      THEKEDAR_DASHBOARD_URL: http://dashboard-hub:8081
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  orchestrator-hibernate:
+    build:
+      context: .
+      dockerfile: infra/docker/orchestrator.Dockerfile
+    command: ["thekedar-orchestrator", "hibernate"]
+    environment:
+      THEKEDAR_ENVIRONMENT: local
+      THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools
 
   dashboard-hub:
     build:
@@ -65,13 +82,17 @@ services:
       - "8081:8081"
     environment:
       THEKEDAR_ENVIRONMENT: local
+      THEKEDAR_DEMO_MODE: "true"
       THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+      THEKEDAR_DASHBOARD_URL: http://localhost:8081
     depends_on:
       postgres:
         condition: service_healthy
 
   bifrost:
     image: maximhq/bifrost:latest
+    profiles:
+      - mcp
     ports:
       - "8090:8080"
     environment:

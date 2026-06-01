@@ -26,8 +26,15 @@ jobs:
       - name: Ruff
         run: uv run ruff check packages tests
 
+      - name: Bandit
+        run: uv run bandit -r packages -ll -q
+
+      - name: pip-audit
+        run: uv run pip-audit
+        continue-on-error: true
+
       - name: Pytest
-        run: uv run pytest tests/unit -v
+        run: uv run pytest tests -q
 
       - name: MCP ping github (registry + policy)
         run: uv run thekedar mcp ping github

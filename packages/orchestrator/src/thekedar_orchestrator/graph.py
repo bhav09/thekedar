@@ -1,10 +1,12 @@
-"""LangGraph agent state machine for inbound messages."""
+"""LangGraph agent state machine — routes to OrchestratorServices."""
 
 from __future__ import annotations
 
 from typing import Literal, TypedDict
 
 from langgraph.graph import END, StateGraph
+
+from thekedar_orchestrator.services import OrchestratorServices
 
 Workflow = Literal["help", "architect", "coder", "status"]
 
@@ -14,6 +16,11 @@ class AgentState(TypedDict, total=False):
     workflow: Workflow
     current_node: str
     reply: str
+    run_id: str
+    correlation_id: str | None
+    issue_key: str | None
+    pr_url: str | None
+    status: str
 
 
 def parse_intent(state: AgentState) -> AgentState:
@@ -22,60 +29,37 @@ def parse_intent(state: AgentState) -> AgentState:
     mentions = message.get("mentioned_agents") or []
 
     workflow: Workflow = "help"
-    if "Coder" in mentions:
+    if "Coder" in mentions or "@coder" in text.lower():
         workflow = "coder"
-    elif "Architect" in mentions:
+    elif "Architect" in mentions or "@architect" in text.lower():
         workflow = "architect"
-    elif "Status" in mentions:
-        workflow = "status"
-    elif "@coder" in text.lower():
-        workflow = "coder"
-    elif "@architect" in text.lower():
-        workflow = "architect"
-    elif "@status" in text.lower():
+    elif "Status" in mentions or "@status" in text.lower():
         workflow = "status"
 
     return {"workflow": workflow, "current_node": "parse_intent"}
 
 
-def route_workflow(state: AgentState) -> AgentState:
-    return {"current_node": "route"}
+def build_graph(services: OrchestratorServices):
+    async def execute(state: AgentState) -> AgentState:
+        from thekedar_shared.schemas import MessageEvent
 
+        message = MessageEvent.model_validate(state["message"])
+        result = await services.run(
+            message,
+            str(state.get("workflow") or "help"),
+            str(state.get("run_id") or ""),
+            state.get("correlation_id"),
+        )
+        return {
+            **result,
+            "reply": result.get("reply", ""),
+            "current_node": result.get("current_node", "done"),
+        }
 
-def summarize(state: AgentState) -> AgentState:
-    workflow = state.get("workflow") or "help"
-    dashboard_url = "http://localhost:8081"
-
-    replies = {
-        "help": (
-            "Thekedar agents:\n"
-            "• @Architect — planning & Jira mapping (M3)\n"
-            "• @Coder — cloud coding & PRs (M4+)\n"
-            "• @Status — dashboard queries\n"
-            f"Dashboard: {dashboard_url}"
-        ),
-        "architect": (
-            "Architect mode: I'll map epics to the codebase once Jira is wired (M3). "
-            f"Track runs on the dashboard: {dashboard_url}"
-        ),
-        "coder": (
-            "Coder mode: I'll wake Cloud Workstations and open PRs in M4+. "
-            f"Dashboard: {dashboard_url}"
-        ),
-        "status": (
-            f"Status: check the dashboard for active runs and workstation health — {dashboard_url}"
-        ),
-    }
-    return {"reply": replies[workflow], "current_node": "summarize"}
-
-
-def build_graph():
     graph = StateGraph(AgentState)
     graph.add_node("parse_intent", parse_intent)
-    graph.add_node("route", route_workflow)
-    graph.add_node("summarize", summarize)
+    graph.add_node("execute", execute)
     graph.set_entry_point("parse_intent")
-    graph.add_edge("parse_intent", "route")
-    graph.add_edge("route", "summarize")
-    graph.add_edge("summarize", END)
+    graph.add_edge("parse_intent", "execute")
+    graph.add_edge("execute", END)
     return graph.compile()

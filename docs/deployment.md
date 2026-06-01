@@ -1,6 +1,25 @@
 # Deployment Guide
 
-## Environments
+## Self-hosted Docker (recommended for OSS / single team)
+
+Run Thekedar on any VM or Kubernetes cluster with Docker Compose:
+
+```bash
+uv run thekedar init --mode local-live
+docker compose up -d --build
+./scripts/tunnel.sh   # for Slack/WhatsApp webhooks
+```
+
+Hardening:
+
+- Set `THEKEDAR_DEMO_MODE=false`
+- Set `THEKEDAR_JWT_SECRET` and `THEKEDAR_REQUIRE_WEBHOOK_SIGNATURE=true`
+- Put nginx/Caddy in front for TLS
+- Do not expose Postgres/Redis publicly
+
+See [SECURITY.md](../SECURITY.md) and [docs/GA_CHECKLIST.md](GA_CHECKLIST.md).
+
+## Environments (GCP)
 
 | Env | GCP project | Trigger |
 |---|---|---|

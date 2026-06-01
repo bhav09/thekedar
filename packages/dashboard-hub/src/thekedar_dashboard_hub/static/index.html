@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Thekedar Dashboard</title>
+  <link rel="manifest" href="/static/manifest.json" />
   <style>
     :root { font-family: system-ui, sans-serif; background: #0f1117; color: #e6edf3; }
     body { margin: 0; padding: 1.5rem; }
@@ -11,32 +12,85 @@
     .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
     .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; }
     .card h2 { margin: 0 0 .75rem; font-size: 1rem; color: #58a6ff; }
-    pre { white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: .85rem; max-height: 240px; overflow: auto; }
     .pill { display: inline-block; padding: .15rem .5rem; border-radius: 999px; background: #238636; font-size: .75rem; }
+    .search { margin: 1rem 0; display: flex; gap: .5rem; flex-wrap: wrap; }
+    .search input { flex: 1; min-width: 200px; padding: .5rem; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: inherit; }
+    .search button { padding: .5rem 1rem; border-radius: 6px; border: none; background: #238636; color: #fff; cursor: pointer; }
   </style>
 </head>
 <body>
   <h1>Thekedar <span class="pill" id="ws-status">connecting</span></h1>
+  <div class="search">
+    <input id="nl-q" placeholder="Search runs & audit (NL query)…" />
+    <button type="button" onclick="runNlQuery()">Search</button>
+    <button type="button" onclick="refresh()">Refresh</button>
+  </div>
   <div class="grid">
     <div class="card"><h2>Active Runs</h2><pre id="active-runs">Loading…</pre></div>
     <div class="card"><h2>Pending Approvals</h2><pre id="pending-approvals">Loading…</pre></div>
     <div class="card"><h2>Workstation Health</h2><pre id="workstation-health">Loading…</pre></div>
+    <div class="card"><h2>Ticket ↔ Code (D1)</h2><pre id="ticket-code">Loading…</pre></div>
+    <div class="card"><h2>PR Pipeline (D1)</h2><pre id="pr-pipeline">Loading…</pre></div>
+    <div class="card"><h2>Cost Summary (D2)</h2><pre id="cost-summary">Loading…</pre></div>
+    <div class="card"><h2>Audit Trail (D2)</h2><pre id="audit-trail">Loading…</pre></div>
+    <div class="card"><h2>Messaging Activity (D2)</h2><pre id="messaging-activity">Loading…</pre></div>
+    <div class="card"><h2>NL Query (D3)</h2><pre id="nl-query">Enter a query above</pre></div>
   </div>
   <script>
-    async function loadWidget(path, elId) {
-      const res = await fetch(`/api/v1/widgets/${path}`);
+    const TENANT = 'default';
+    let authToken = localStorage.getItem('thekedar_token');
+
+    async function ensureToken() {
+      if (authToken) return authToken;
+      const res = await fetch('/api/v1/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: TENANT }),
+      });
+      if (!res.ok) throw new Error('Auth failed');
       const data = await res.json();
-      document.getElementById(elId).textContent = JSON.stringify(data.items, null, 2);
+      authToken = data.access_token;
+      localStorage.setItem('thekedar_token', authToken);
+      return authToken;
     }
+
+    async function authFetch(path, options = {}) {
+      const token = await ensureToken();
+      const headers = { ...(options.headers || {}), Authorization: `Bearer ${token}` };
+      return fetch(path, { ...options, headers });
+    }
+
+    async function loadWidget(path, elId, key = 'items') {
+      const res = await authFetch(`/api/v1/widgets/${path}`);
+      const data = await res.json();
+      const payload = key === 'raw' ? data : (data[key] ?? data.items ?? data);
+      document.getElementById(elId).textContent = JSON.stringify(payload, null, 2);
+    }
+
     async function refresh() {
       await Promise.all([
         loadWidget('active-runs', 'active-runs'),
         loadWidget('pending-approvals', 'pending-approvals'),
         loadWidget('workstation-health', 'workstation-health'),
+        loadWidget('ticket-code', 'ticket-code'),
+        loadWidget('pr-pipeline', 'pr-pipeline'),
+        loadWidget('cost-summary', 'cost-summary', 'raw'),
+        loadWidget('audit-trail', 'audit-trail'),
+        loadWidget('messaging-activity', 'messaging-activity'),
       ]);
     }
-    refresh();
-    setInterval(refresh, 5000);
+
+    async function runNlQuery() {
+      const q = document.getElementById('nl-q').value.trim();
+      if (!q) return;
+      const res = await authFetch(`/api/v1/widgets/nl-query?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      document.getElementById('nl-query').textContent = JSON.stringify(data.results, null, 2);
+    }
+
+    refresh().catch(() => { document.getElementById('ws-status').textContent = 'auth error'; });
+    setInterval(() => refresh().catch(() => {}), 5000);
 
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`);
     ws.onopen = () => { document.getElementById('ws-status').textContent = 'live'; };

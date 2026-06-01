@@ -13,11 +13,18 @@ Thekedar is a **cloud-deployed** multi-connector orchestrator. See the full blue
 
 ## Local vs deployed
 
-| | Local (`docker compose`) | Staging / Prod (GCP) |
-|---|---|---|
-| Purpose | Dev emulation | Real product |
-| Webhooks | ngrok tunnel | `api.thekedar.app` |
-| Secrets | `.env` | Secret Manager |
+| | Local (`docker compose`) | Self-hosted Docker | Staging / Prod (GCP) |
+|---|---|---|---|
+| Purpose | Dev / demo | Single-team production | Managed scale |
+| Webhooks | ngrok tunnel | Your TLS reverse proxy | `api.yourdomain.com` |
+| Secrets | `.env` | `.env` or vault | Secret Manager |
+| Auth | Demo JWT or configured secret | JWT required | JWT + webhook signatures required |
+
+## OSS topology
+
+Contributors typically run the **local-first** path: Postgres + Redis + three Python services (ingress, worker, dashboard). Bifrost MCP is optional (`docker compose --profile mcp up`).
+
+Production GCP adds Pub/Sub, Cloud Run, GKE (Bifrost), and Cloud Workstations — see [deployment.md](deployment.md).
 
 ## MCP topology (M1+)
 

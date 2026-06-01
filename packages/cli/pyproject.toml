@@ -16,7 +16,7 @@ thekedar-mcp-policy = { workspace = true }
 thekedar-shared = { workspace = true }
 
 [project.scripts]
-thekedar = "thekedar_cli.main:app"
+thekedar = "thekedar_cli.main:run"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,6 +1,7 @@
 """Webhook routes — verify, dedup, enqueue, fast ACK."""
 
 import json
+import logging
 from collections.abc import Callable
 from typing import Annotated, Any
 
@@ -13,10 +14,13 @@ from thekedar_message_adapter import (
     verify_whatsapp_signature,
     whatsapp_challenge_response,
 )
+from thekedar_shared.rate_limit import WebhookRateLimiter
 from thekedar_shared.schemas import MessageEvent
-from thekedar_shared.settings import get_settings
+from thekedar_shared.settings import Settings, get_settings
 
 from thekedar_webhook_ingress.deps import get_bus, get_idempotency, get_redis
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -39,12 +43,13 @@ async def whatsapp_verify(
 async def whatsapp_events(
     request: Request,
     redis: Annotated[aioredis.Redis, Depends(get_redis)],
+    settings: Annotated[Settings, Depends(get_settings)],
     x_hub_signature_256: Annotated[str | None, Header()] = None,
 ) -> dict[str, str]:
-    settings = get_settings()
+    await _enforce_rate_limit(redis, settings, request.client.host if request.client else "unknown")
     body = await request.body()
     _verify_or_skip(
-        settings.environment,
+        settings,
         settings.whatsapp_app_secret,
         lambda: verify_whatsapp_signature(
             settings.whatsapp_app_secret or "", body, x_hub_signature_256
@@ -60,10 +65,11 @@ async def whatsapp_events(
 async def slack_events(
     request: Request,
     redis: Annotated[aioredis.Redis, Depends(get_redis)],
+    settings: Annotated[Settings, Depends(get_settings)],
     x_slack_signature: Annotated[str | None, Header()] = None,
     x_slack_request_timestamp: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    settings = get_settings()
+    await _enforce_rate_limit(redis, settings, request.client.host if request.client else "unknown")
     body = await request.body()
     payload = json.loads(body)
 
@@ -71,7 +77,7 @@ async def slack_events(
         return {"challenge": payload.get("challenge")}
 
     _verify_or_skip(
-        settings.environment,
+        settings,
         settings.slack_signing_secret,
         lambda: verify_slack_signature(
             settings.slack_signing_secret or "",
@@ -86,13 +92,29 @@ async def slack_events(
     return {"status": "accepted"}
 
 
-def _verify_or_skip(environment: str, secret: str | None, verifier: Callable[[], bool]) -> None:
+def _verify_or_skip(
+    settings: Settings,
+    secret: str | None,
+    verifier: Callable[[], bool],
+) -> None:
+    require = settings.require_webhook_signature or settings.environment == "prod"
     if not secret:
-        if environment == "prod":
+        if require:
             raise HTTPException(status_code=500, detail="Webhook secret not configured")
+        logger.warning("Accepting unsigned webhook (signature verification disabled)")
         return
     if not verifier():
         raise HTTPException(status_code=401, detail="Invalid signature")
+
+
+async def _enforce_rate_limit(redis: aioredis.Redis, settings: Settings, client_key: str) -> None:
+    limiter = WebhookRateLimiter(redis, settings.webhook_rate_limit_rps)
+    if not await limiter.allow(client_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": "1"},
+        )
 
 
 async def _enqueue_events(

@@ -24,6 +24,8 @@ dev = [
     "httpx>=0.28",
     "ruff>=0.8",
     "mypy>=1.13",
+    "pip-audit>=2.7",
+    "bandit>=1.8",
 ]
 
 [tool.pytest.ini_options]

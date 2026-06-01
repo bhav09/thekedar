@@ -11,6 +11,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
     "google-cloud-pubsub>=2.27",
+    "pyjwt>=2.10",
+    "pyyaml>=6.0",
 ]
 
 [build-system]

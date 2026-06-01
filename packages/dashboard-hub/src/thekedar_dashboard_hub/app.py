@@ -9,21 +9,25 @@ from fastapi.staticfiles import StaticFiles
 from thekedar_shared.db import init_db
 from thekedar_shared.middleware import CorrelationIdMiddleware
 from thekedar_shared.settings import get_settings
+from thekedar_shared.settings_validation import validate_settings
 
-from thekedar_dashboard_hub.routes import widgets, ws
+from thekedar_dashboard_hub.routes import approvals, auth, widgets, ws
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    validate_settings(settings)
     app.state.session_factory = init_db(settings.database_url)
     yield
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Thekedar Dashboard Hub", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Thekedar Dashboard Hub", version="0.2.0", lifespan=lifespan)
     app.add_middleware(CorrelationIdMiddleware)
+    app.include_router(auth.router, prefix="/api/v1")
     app.include_router(widgets.router, prefix="/api/v1")
+    app.include_router(approvals.router, prefix="/api/v1")
     app.include_router(ws.router)
 
     static_dir = Path(__file__).parent / "static"

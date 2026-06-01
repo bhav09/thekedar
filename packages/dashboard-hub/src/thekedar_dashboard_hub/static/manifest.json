@@ -1,0 +1,8 @@
+{
+  "name": "Thekedar Dashboard",
+  "short_name": "Thekedar",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#238636"
+}
