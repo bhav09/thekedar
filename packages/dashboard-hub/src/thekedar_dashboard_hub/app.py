@@ -38,4 +38,20 @@ def create_app() -> FastAPI:
     async def index() -> FileResponse:
         return FileResponse(static_dir / "index.html")
 
+    @app.get("/health")
+    async def liveness() -> dict[str, str]:
+        return {"status": "ok", "service": "dashboard-hub"}
+
+    @app.get("/ready")
+    async def readiness() -> dict[str, str]:
+        settings = get_settings()
+        try:
+            factory = app.state.session_factory
+            session = factory()
+            session.execute(__import__("sqlalchemy").text("SELECT 1"))
+            session.close()
+        except Exception as exc:
+            return {"status": "not_ready", "service": "dashboard-hub", "detail": str(exc)}
+        return {"status": "ready", "service": "dashboard-hub"}
+
     return app

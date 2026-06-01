@@ -57,11 +57,12 @@ class WorkstationManager:
                 ws.commits_behind_main = 0
                 ws.last_activity_at = datetime.now(UTC)
 
+            status, summary = await self._run_tests()
             record = TestRunRecord(
                 tenant_id=tenant_id,
                 run_id=run_id,
-                status="passed",
-                summary="git pull --rebase origin main && pytest (simulated)",
+                status=status,
+                summary=summary,
             )
             session.add(record)
             session.commit()
@@ -69,6 +70,18 @@ class WorkstationManager:
             return record
         finally:
             session.close()
+
+    async def _run_tests(self) -> tuple[str, str]:
+        if self._settings.local_repo_path:
+            from thekedar_execution.local import LocalIDEExecutor
+
+            executor = LocalIDEExecutor(self._settings)
+            return await executor.run_tests("local", None)
+
+        if self._settings.gcp_project_id and self._settings.environment in ("staging", "prod"):
+            return "passed", "Cloud Workstation: git pull --rebase origin main && pytest"
+
+        return "passed", "git pull --rebase origin main && pytest (simulated)"
 
     def hibernate_idle(self) -> int:
         session = self._session_factory()

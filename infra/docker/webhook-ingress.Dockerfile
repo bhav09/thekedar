@@ -2,8 +2,6 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir uv
-
 COPY pyproject.toml ./
 COPY packages/shared/pyproject.toml packages/shared/
 COPY packages/message-adapter/pyproject.toml packages/message-adapter/
@@ -12,7 +10,7 @@ COPY packages/shared/src packages/shared/src
 COPY packages/message-adapter/src packages/message-adapter/src
 COPY packages/webhook-ingress/src packages/webhook-ingress/src
 
-RUN uv pip install --system --no-cache ./packages/shared ./packages/message-adapter ./packages/webhook-ingress
+RUN pip install --no-cache-dir ./packages/shared ./packages/message-adapter ./packages/webhook-ingress
 
 FROM python:3.12-slim AS runtime
 

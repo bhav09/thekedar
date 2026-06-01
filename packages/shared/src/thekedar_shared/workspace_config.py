@@ -31,15 +31,25 @@ def seed_workspaces_from_config(session_factory, config_path: str) -> int:
         for entry in entries:
             tenant_id = str(entry.get("tenant_id") or "default")
             existing = session.query(Workspace).filter_by(tenant_id=tenant_id).first()
+            github_url = entry.get("github_project_url")
+            org = str(entry.get("github_org") or "")
             repos = entry.get("github_repos") or []
+            
+            if github_url:
+                from thekedar_shared.workspace import parse_github_url
+                parsed = parse_github_url(github_url)
+                if parsed:
+                    org, repos = parsed
+
             if existing is None:
                 session.add(
                     Workspace(
                         tenant_id=tenant_id,
                         name=str(entry.get("name") or tenant_id),
                         jira_project_key=str(entry.get("jira_project_key") or "THE"),
-                        github_org=str(entry.get("github_org") or ""),
+                        github_org=org,
                         github_repos=json.dumps(repos),
+                        github_project_url=github_url,
                         slack_team_id=entry.get("slack_team_id"),
                         whatsapp_phone_number_id=entry.get("whatsapp_phone_number_id"),
                         cloud_workstation_config_id=entry.get("cloud_workstation_config_id"),

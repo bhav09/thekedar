@@ -12,10 +12,14 @@ resolution-markers = [
 members = [
     "thekedar",
     "thekedar-cli",
+    "thekedar-context",
     "thekedar-dashboard-hub",
+    "thekedar-execution",
+    "thekedar-ide-adapters",
     "thekedar-mcp-policy",
     "thekedar-message-adapter",
     "thekedar-orchestrator",
+    "thekedar-resilience",
     "thekedar-shared",
     "thekedar-webhook-ingress",
 ]
@@ -369,6 +373,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
+]
+
+[[package]]
+name = "fakeredis"
+version = "2.36.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "redis" },
+    { name = "sortedcontainers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/40/26/9cf5174d2e42c24761f87d76160f959e7dbea1cf35b2c81c9cfcd7c74ad9/fakeredis-2.36.0.tar.gz", hash = "sha256:66d00953c9bfd3e345266ded342a2e54c611417344f43ad1467cb68f30bc8354", size = 209484, upload-time = "2026-05-29T19:14:27.316Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/66/5a/6ea14103f9254f0bef31d323e8fe1f57bc0151f7a4b287889217752e9879/fakeredis-2.36.0-py3-none-any.whl", hash = "sha256:43536ed9eb7af34a31226ee4e52c8471d1c3cc522ba2852a9985d3291e71287b", size = 138102, upload-time = "2026-05-29T19:14:25.974Z" },
 ]
 
 [[package]]
@@ -1760,6 +1777,7 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "bandit" },
+    { name = "fakeredis" },
     { name = "httpx" },
     { name = "mypy" },
     { name = "pip-audit" },
@@ -1773,6 +1791,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "bandit", specifier = ">=1.8" },
+    { name = "fakeredis", specifier = ">=2.26" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pip-audit", specifier = ">=2.7" },
@@ -1788,6 +1807,7 @@ source = { editable = "packages/cli" }
 dependencies = [
     { name = "httpx" },
     { name = "pyyaml" },
+    { name = "thekedar-context" },
     { name = "thekedar-mcp-policy" },
     { name = "thekedar-shared" },
     { name = "typer" },
@@ -1797,10 +1817,22 @@ dependencies = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "thekedar-context", editable = "packages/context" },
     { name = "thekedar-mcp-policy", editable = "packages/mcp-policy" },
     { name = "thekedar-shared", editable = "packages/shared" },
     { name = "typer", specifier = ">=0.15" },
 ]
+
+[[package]]
+name = "thekedar-context"
+version = "0.1.0"
+source = { editable = "packages/context" }
+dependencies = [
+    { name = "thekedar-shared" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "thekedar-shared", editable = "packages/shared" }]
 
 [[package]]
 name = "thekedar-dashboard-hub"
@@ -1817,6 +1849,40 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "thekedar-shared", editable = "packages/shared" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
+]
+
+[[package]]
+name = "thekedar-execution"
+version = "0.1.0"
+source = { editable = "packages/execution" }
+dependencies = [
+    { name = "thekedar-context" },
+    { name = "thekedar-ide-adapters" },
+    { name = "thekedar-shared" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "thekedar-context", editable = "packages/context" },
+    { name = "thekedar-ide-adapters", editable = "packages/ide-adapters" },
+    { name = "thekedar-shared", editable = "packages/shared" },
+]
+
+[[package]]
+name = "thekedar-ide-adapters"
+version = "0.1.0"
+source = { editable = "packages/ide-adapters" }
+dependencies = [
+    { name = "httpx" },
+    { name = "thekedar-context" },
+    { name = "thekedar-shared" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "thekedar-context", editable = "packages/context" },
+    { name = "thekedar-shared", editable = "packages/shared" },
 ]
 
 [[package]]
@@ -1857,8 +1923,12 @@ dependencies = [
     { name = "httpx" },
     { name = "langgraph" },
     { name = "redis" },
+    { name = "thekedar-context" },
+    { name = "thekedar-execution" },
+    { name = "thekedar-ide-adapters" },
     { name = "thekedar-mcp-policy" },
     { name = "thekedar-message-adapter" },
+    { name = "thekedar-resilience" },
     { name = "thekedar-shared" },
 ]
 
@@ -1867,8 +1937,31 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "langgraph", specifier = ">=0.3" },
     { name = "redis", specifier = ">=5.2" },
+    { name = "thekedar-context", editable = "packages/context" },
+    { name = "thekedar-execution", editable = "packages/execution" },
+    { name = "thekedar-ide-adapters", editable = "packages/ide-adapters" },
     { name = "thekedar-mcp-policy", editable = "packages/mcp-policy" },
     { name = "thekedar-message-adapter", editable = "packages/message-adapter" },
+    { name = "thekedar-resilience", editable = "packages/resilience" },
+    { name = "thekedar-shared", editable = "packages/shared" },
+]
+
+[[package]]
+name = "thekedar-resilience"
+version = "0.1.0"
+source = { editable = "packages/resilience" }
+dependencies = [
+    { name = "httpx" },
+    { name = "redis" },
+    { name = "tenacity" },
+    { name = "thekedar-shared" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "redis", specifier = ">=5.2" },
+    { name = "tenacity", specifier = ">=9.0" },
     { name = "thekedar-shared", editable = "packages/shared" },
 ]
 

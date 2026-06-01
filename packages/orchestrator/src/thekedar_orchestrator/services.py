@@ -3,20 +3,19 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
 from sqlalchemy.orm import Session
 from thekedar_shared.audit import log_audit, log_cost, log_message
-from thekedar_shared.db import PendingApproval, TicketCodeLink, Workspace
+from thekedar_shared.db import AgentRun, PendingApproval, TicketCodeLink, Workspace
 from thekedar_shared.schemas import MessageEvent
 from thekedar_shared.settings import Settings
 from thekedar_shared.workspace import WorkspaceService
 
+from thekedar_orchestrator.coder_pipeline import CoderPipeline
 from thekedar_orchestrator.integrations.github_client import GitHubClient
 from thekedar_orchestrator.integrations.jira_client import JiraClient
 from thekedar_orchestrator.integrations.workstation import WorkstationManager
-from thekedar_orchestrator.policy_gate import PolicyViolation, enforce_mcp_policy
-from thekedar_orchestrator.ticket_utils import branch_name, extract_issue_key, slug_from_text
+from thekedar_orchestrator.ticket_utils import extract_issue_key
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +28,7 @@ class OrchestratorServices:
         self._jira = JiraClient(settings)
         self._github = GitHubClient(settings)
         self._workstation = WorkstationManager(settings, session_factory)
+        self._coder = CoderPipeline(settings, session_factory, self._github, self._workstation)
 
     def seed(self) -> None:
         self._workspace.seed_defaults()
@@ -70,7 +70,7 @@ class OrchestratorServices:
         if workflow == "architect":
             return await self._run_architect(message, workspace, run_id)
         if workflow == "coder":
-            return await self._run_coder(message, workspace, run_id, correlation_id)
+            return await self.run_coder_pipeline(message, run_id, correlation_id)
         if workflow == "status":
             return await self._run_status(message, workspace)
         return self._help_reply()
@@ -81,7 +81,7 @@ class OrchestratorServices:
         text = message.text.lower()
         session = self._session_factory()
         try:
-            if ("create" in text and "epic" in text) or "create issue" in text:
+            if "create" in text and any(k in text for k in ("epic", "issue", "task", "ticket", "bug")):
                 summary = message.text.split(":", 1)[-1].strip()[:120] or "New task from Thekedar"
                 issue = await self._jira.create_issue(workspace.jira_project_key, summary)
                 self._upsert_ticket_link(
@@ -132,22 +132,21 @@ class OrchestratorServices:
         finally:
             session.close()
 
-    async def _run_coder(
+    async def run_coder_pipeline(
         self,
         message: MessageEvent,
-        workspace: Workspace,
         run_id: str,
         correlation_id: str | None,
     ) -> dict:
-        await self._workstation.ensure_ready(
-            workspace.tenant_id, workspace.cloud_workstation_config_id
-        )
-        test = await self._workstation.sync_repo_and_test(workspace.tenant_id, run_id)
-        if test.status != "passed":
+        workspace = self._workspace.resolve(message)
+        if workspace is None:
             return {
                 "workflow": "coder",
-                "reply": f"Aborted: tests failed — {test.summary}",
-                "current_node": "sync_repo",
+                "reply": (
+                    "Unknown workspace. Contact admin to register your "
+                    "Slack team or WhatsApp number."
+                ),
+                "current_node": "resolve_workspace",
             }
 
         issue_key = extract_issue_key(message.text)
@@ -158,96 +157,57 @@ class OrchestratorServices:
                 "current_node": "parse_issue",
             }
 
-        repo = self._workspace.primary_repo(workspace)
-        branch = branch_name(issue_key, slug_from_text(message.text))
-        try:
-            enforce_mcp_policy(
-                self._settings,
-                "github",
-                "create_branch",
-                {"repo": repo, "branch": branch},
-            )
-            enforce_mcp_policy(
-                self._settings,
-                "github",
-                "create_pull_request",
-                {"repo": repo, "head": branch},
-            )
-        except PolicyViolation as exc:
-            return {
-                "workflow": "coder",
-                "reply": f"Blocked by MCP policy: {exc}",
-                "current_node": "policy_denied",
-                "status": "failed",
-            }
-
-        await self._github.create_branch(repo, branch)
-
-        needs_approval = any(w in message.text.lower() for w in ("merge", "force push", "deploy"))
-        pr_body = (
-            f"Automated PR for {issue_key}\n\n"
-            f"Triggered via Thekedar ({message.channel.value})\n"
-            f"Review diff in GitHub — not in chat."
-        )
-        pr = await self._github.create_pull_request(
-            repo, f"{issue_key}: {slug_from_text(message.text)}", branch, pr_body
-        )
-        ci = await self._github.get_pr_ci_status(repo, pr.number)
-
         session = self._session_factory()
         try:
-            self._upsert_ticket_link(
-                session,
-                workspace.tenant_id,
-                issue_key,
-                pr.title,
-                "In Review",
-                branch_name=branch,
-                pr_url=pr.url,
-                pr_number=pr.number,
-                ci_status=ci,
-            )
-            log_audit(session, workspace.tenant_id, message.user_id, "github.pr_created", pr.url)
-            log_cost(session, workspace.tenant_id, "compute", 0.15, run_id)
-            log_cost(session, workspace.tenant_id, "llm", 0.05, run_id)
-
-            approval_id = None
-            if needs_approval:
-                approval = PendingApproval(
-                    id=str(uuid.uuid4()),
-                    tenant_id=workspace.tenant_id,
-                    run_id=run_id,
-                    approval_type="merge_pr",
-                    summary=f"Approve merge for {issue_key}",
-                    pr_url=pr.url,
-                    status="pending",
-                )
-                session.add(approval)
-                approval_id = approval.id
-
-            session.commit()
+            run = session.get(AgentRun, run_id)
+            if run:
+                run.workflow = "coder"
+                run.issue_key = issue_key
+                session.commit()
         finally:
             session.close()
 
-        reply = (
-            f"PR ready for {issue_key}\n"
-            f"Branch: `{branch}`\n"
-            f"Review: {pr.url}\n"
-            f"CI: {ci}\n"
-            f"Dashboard: {self._settings.dashboard_url}"
-        )
-        if approval_id:
-            approval_url = f"{self._settings.dashboard_url}/#/approvals/{approval_id}"
-            reply += f"\n⚠️ Approval required: {approval_url}"
+        return await self._coder.run_until_pause(message, workspace, run_id)
 
-        return {
-            "workflow": "coder",
-            "reply": reply,
-            "current_node": "await_approval" if needs_approval else "pr_created",
-            "issue_key": issue_key,
-            "pr_url": pr.url,
-            "status": "awaiting_approval" if needs_approval else "completed",
-        }
+    async def resume_coder_run(
+        self,
+        run_id: str,
+        approval_id: str,
+        decision: str,
+        user_message: str | None = None,
+    ) -> dict:
+        return await self._coder.resume(run_id, approval_id, decision, user_message)
+
+    def resolve_pending_approval(
+        self, message: MessageEvent, approval_id: str | None
+    ) -> PendingApproval | None:
+        workspace = self._workspace.resolve(message)
+        if workspace is None:
+            return None
+        session = self._session_factory()
+        try:
+            if approval_id:
+                item = session.get(PendingApproval, approval_id)
+                if (
+                    item
+                    and item.tenant_id == workspace.tenant_id
+                    and item.status == "pending"
+                ):
+                    return item
+                return None
+            return (
+                session.query(PendingApproval)
+                .filter_by(tenant_id=workspace.tenant_id, status="pending")
+                .filter(
+                    PendingApproval.approval_type.in_(
+                        ("impact_review", "plan_review", "publish_review")
+                    )
+                )
+                .order_by(PendingApproval.created_at.desc())
+                .first()
+            )
+        finally:
+            session.close()
 
     async def _run_status(self, message: MessageEvent, workspace: Workspace) -> dict:
         session = self._session_factory()
@@ -279,8 +239,9 @@ class OrchestratorServices:
             "reply": (
                 "Thekedar agents:\n"
                 "• @Architect — Jira query/create\n"
-                "• @Coder — branch + PR (include TICKET-123)\n"
+                "• @Coder — context → impact → plan → code → report (include TICKET-123)\n"
                 "• @Status — dashboard snapshot\n"
+                "• Reply `approve` / `reject` or `create pr` to continue pending runs\n"
                 f"Dashboard: {self._settings.dashboard_url}"
             ),
             "current_node": "summarize",

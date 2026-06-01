@@ -18,3 +18,6 @@ class IdempotencyStore:
         """Return True if this is the first time seeing the key."""
         was_set = await self._redis.set(self._key(idempotency_key), "1", nx=True, ex=self._ttl)
         return bool(was_set)
+
+    async def is_claimed(self, idempotency_key: str) -> bool:
+        return bool(await self._redis.exists(self._key(idempotency_key)))

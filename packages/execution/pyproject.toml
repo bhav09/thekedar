@@ -1,0 +1,22 @@
+[project]
+name = "thekedar-execution"
+version = "0.1.0"
+description = "Execution plane for Thekedar coding runs"
+requires-python = ">=3.12"
+dependencies = [
+    "thekedar-shared",
+    "thekedar-context",
+    "thekedar-ide-adapters",
+]
+
+[tool.uv.sources]
+thekedar-shared = { workspace = true }
+thekedar-context = { workspace = true }
+thekedar-ide-adapters = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/thekedar_execution"]

@@ -23,10 +23,15 @@ async def test_health_returns_ok(app) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ready_returns_ready(app) -> None:
+async def test_ready_returns_ready(app, monkeypatch) -> None:
+    monkeypatch.setenv("THEKEDAR_DATABASE_URL", "sqlite:///:memory:")
+    from thekedar_shared.settings import get_settings
+
+    get_settings.cache_clear()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/ready")
+    get_settings.cache_clear()
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
 

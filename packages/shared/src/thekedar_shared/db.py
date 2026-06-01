@@ -31,6 +31,7 @@ class Workspace(Base):
     jira_project_key: Mapped[str] = mapped_column(String(32), default="THE")
     github_org: Mapped[str] = mapped_column(String(128), default="")
     github_repos: Mapped[str] = mapped_column(Text, default="[]")
+    github_project_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     slack_team_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     whatsapp_phone_number_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True
@@ -55,6 +56,8 @@ class AgentRun(Base):
     issue_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
     pr_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     correlation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    context_snapshot_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    branch_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -68,9 +71,47 @@ class PendingApproval(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), index=True)
     run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     approval_type: Mapped[str] = mapped_column(String(64))
+    stage: Mapped[str] = mapped_column(String(32), default="merge")
     summary: Mapped[str] = mapped_column(Text)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     pr_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel_reply_token: Mapped[str | None] = mapped_column(String(256), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ContextSnapshot(Base):
+    __tablename__ = "context_snapshots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    repo: Mapped[str] = mapped_column(String(256), index=True)
+    sha: Mapped[str] = mapped_column(String(64), default="")
+    branch: Mapped[str] = mapped_column(String(128), default="main")
+    indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ContextChunk(Base):
+    __tablename__ = "context_chunks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    snapshot_id: Mapped[str] = mapped_column(String(36), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    repo: Mapped[str] = mapped_column(String(256), index=True)
+    chunk_type: Mapped[str] = mapped_column(String(64))
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class RunArtifact(Base):
+    __tablename__ = "run_artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    artifact_type: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -154,6 +195,69 @@ class InboundDedup(Base):
 
     idempotency_key: Mapped[str] = mapped_column(String(256), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class RunStep(Base):
+    __tablename__ = "run_steps"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    step: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    error_class: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
+class OutboundNotification(Base):
+    __tablename__ = "outbound_notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    channel: Mapped[str] = mapped_column(String(32))
+    destination: Mapped[str] = mapped_column(String(256))
+    body: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProviderOutage(Base):
+    __tablename__ = "provider_outages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    state: Mapped[str] = mapped_column(String(32))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class DlqMessage(Base):
+    __tablename__ = "dlq_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String(64), default="inbound")
+    payload_json: Mapped[str] = mapped_column(Text)
+    delivery_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    replayed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def init_db(database_url: str) -> sessionmaker:

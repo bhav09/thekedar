@@ -1,13 +1,15 @@
-# Thekedar VS Code Extension (stub — M6 D3)
+# Thekedar VS Code Extension (M7 stub)
 
-Minimal extension scaffold for surfacing dashboard widgets inside the IDE.
+Webview sidebar for Thekedar dashboard widgets: active runs, pending approvals, and deep links.
 
-## Planned commands
-- `thekedar.showActiveRuns` — fetch `/api/v1/widgets/active-runs`
-- `thekedar.approvePending` — open dashboard approval deep link
+## Planned features
 
-## Local dev
-Point `THEKEDAR_DASHBOARD_URL` at your dashboard-hub instance and implement
-`fetch` calls from a VS Code webview panel.
+- Sign in with dashboard JWT (`THEKEDAR_DASHBOARD_URL`)
+- Show run status for `@Coder` M7 pipeline stages (impact, plan, coding, report)
+- Approve/reject from sidebar (calls dashboard `/api/v1/approvals`)
 
-This directory is a placeholder; full extension packaging is post-GA.
+## Status
+
+Stub only — not packaged or published. Use the dashboard PWA and Slack/WhatsApp approvals for now.
+
+See [docs/IDE_SETUP.md](../../docs/IDE_SETUP.md).

@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import os
 
+# Clean environment variables to ensure test isolation
+for key in ["GITHUB_TOKEN", "JIRA_API_TOKEN", "JIRA_BASE_URL", "JIRA_EMAIL", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"]:
+    if key in os.environ:
+        del os.environ[key]
+
 import pytest
 from thekedar_orchestrator.services import OrchestratorServices
 from thekedar_shared.auth import create_access_token
@@ -11,8 +16,13 @@ from thekedar_shared.db import init_db
 from thekedar_shared.schemas import Channel, MessageEvent
 from thekedar_shared.settings import Settings, get_settings
 
+os.environ.setdefault("THEKEDAR_ALLOW_DEFAULT_SEED", "true")
 os.environ.setdefault("THEKEDAR_DEMO_MODE", "true")
 os.environ.setdefault("THEKEDAR_ENVIRONMENT", "local")
+os.environ.setdefault("THEKEDAR_LOCAL_IDE", "1")
+os.environ.setdefault("THEKEDAR_LLM_PROVIDER", "mock")
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+os.environ.setdefault("THEKEDAR_LOCAL_REPO_PATH", _repo_root)
 get_settings.cache_clear()
 
 

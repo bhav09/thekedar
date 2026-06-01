@@ -8,12 +8,14 @@ from typing import Protocol
 from google.cloud import pubsub_v1
 from redis.asyncio import Redis
 
+from thekedar_shared.dlq import DLQ_KEY
 from thekedar_shared.settings import Settings
 
 
 class MessageBus(Protocol):
     async def publish_inbound(self, payload: dict) -> None: ...
     async def consume_inbound(self, timeout: int = 5) -> dict | None: ...
+    async def nack_to_dlq(self, payload: dict, *, error: str = "") -> None: ...
 
 
 class RedisMessageBus:
@@ -32,6 +34,13 @@ class RedisMessageBus:
         _, raw = result
         return json.loads(raw)
 
+    async def nack_to_dlq(self, payload: dict, *, error: str = "") -> None:
+        envelope = {"payload": payload, "error": error}
+        await self._redis.lpush(DLQ_KEY, json.dumps(envelope, default=str))
+
+    async def dlq_depth(self) -> int:
+        return int(await self._redis.llen(DLQ_KEY))
+
 
 class PubSubMessageBus:
     def __init__(self, settings: Settings) -> None:
@@ -48,6 +57,7 @@ class PubSubMessageBus:
             settings.pubsub_project_id,
             settings.inbound_subscription,
         )
+        self._pending_ack: str | None = None
 
     async def publish_inbound(self, payload: dict) -> None:
         data = json.dumps(payload).encode("utf-8")
@@ -55,7 +65,6 @@ class PubSubMessageBus:
         future.result(timeout=10)
 
     async def consume_inbound(self, timeout: int = 5) -> dict | None:
-        # Sync pull wrapped — worker uses Redis locally; Pub/Sub via pull in GCP deployment
         response = self._subscriber.pull(
             request={"subscription": self._subscription_path, "max_messages": 1},
             timeout=timeout,
@@ -63,11 +72,26 @@ class PubSubMessageBus:
         if not response.received_messages:
             return None
         message = response.received_messages[0]
-        payload = json.loads(message.message.data.decode("utf-8"))
-        self._subscriber.acknowledge(
-            request={"subscription": self._subscription_path, "ack_ids": [message.ack_id]}
-        )
-        return payload
+        self._pending_ack = message.ack_id
+        return json.loads(message.message.data.decode("utf-8"))
+
+    async def ack(self) -> None:
+        if self._pending_ack:
+            self._subscriber.acknowledge(
+                request={"subscription": self._subscription_path, "ack_ids": [self._pending_ack]}
+            )
+            self._pending_ack = None
+
+    async def nack_to_dlq(self, payload: dict, *, error: str = "") -> None:
+        if self._pending_ack:
+            self._subscriber.modify_ack_deadline(
+                request={
+                    "subscription": self._subscription_path,
+                    "ack_ids": [self._pending_ack],
+                    "ack_deadline_seconds": 0,
+                }
+            )
+            self._pending_ack = None
 
 
 def create_message_bus(settings: Settings, redis: Redis) -> RedisMessageBus | PubSubMessageBus:
