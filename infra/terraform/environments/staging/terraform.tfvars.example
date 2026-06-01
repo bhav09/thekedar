@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in — never commit terraform.tfvars
+
+project_id = "thekedar-staging"
+region     = "us-central1"
+environment = "staging"
+
+# Cloud Run
+webhook_ingress_image = "us-central1-docker.pkg.dev/thekedar-staging/thekedar/webhook-ingress:latest"

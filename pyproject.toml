@@ -1,0 +1,36 @@
+[project]
+name = "thekedar"
+version = "0.1.0"
+description = "Headless MCP Orchestrator for WhatsApp, Slack, Jira, and GitHub"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+workspace = { members = ["packages/shared", "packages/webhook-ingress"] }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["packages/shared/src", "packages/webhook-ingress/src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["thekedar_shared", "thekedar_webhook_ingress"]

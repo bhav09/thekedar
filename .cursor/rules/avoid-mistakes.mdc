@@ -1,0 +1,707 @@
+---
+description: Mandatory pre-coding anti-pattern framework — context-aware domain prioritization plus industry-agnostic scalable application rules
+alwaysApply: true
+---
+
+# Avoid These Mistakes — Scalable & Adaptive Anti-Patterns
+
+> **Purpose:** Mandatory pre-coding checklist and design gate. Before writing or modifying ANY code, run **Section 0** (context discovery), apply **Section 1** domain priorities when detected, then enforce **Sections 2–12** (universal rules). Industry-specific rules never replace universal ones — they **stack and elevate** critical invariants.
+
+**Related rules (do not contradict):** `no-hardcoded-env-vars` (config singleton), `test-driven-development`, `systems-thinking`, `safe-git-push`.
+
+---
+
+## 0. MANDATORY AGENT WORKFLOW (EVERY TASK)
+
+Before implementation, explicitly complete this gate in your reasoning or task brief:
+
+### 0.1 Context discovery (automated)
+
+Scan the **current task scope** (files touched, open files, user request) and **project footprint**:
+
+| Signal source | What to look for |
+|---|---|
+| Dependencies | `package.json`, `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `pom.xml` |
+| Layout | `services/`, `apps/`, `packages/`, `contracts/`, `workers/`, `migrations/` |
+| Data layer | Spanner, Postgres, MySQL, MongoDB, Redis, Neo4j, BigQuery, Snowflake, DynamoDB, vector DB clients |
+| Messaging | Kafka, RabbitMQ, Pub/Sub, SQS, Celery, Temporal, Airflow |
+| AI/ML | OpenAI, Anthropic, Vertex, LangChain, vector stores, embedding pipelines |
+| Auth/compliance | OAuth, SAML, RBAC libs, HIPAA/FHIR, PCI, SOC2 mentions in docs |
+| Runtime | FastAPI, Express, Django, Spring, Lambda, Cloud Run, K8s manifests |
+
+### 0.2 Declare active domain profile(s)
+
+- Match **one or more** profiles from **Section 1** (hybrid systems are common).
+- If **no profile matches**, use **PROFILE Z (General Application)** only.
+- State in output: `Active profiles: [A, C]` + **top 3 invariants** per profile + **which anti-patterns are P0** for this task.
+
+### 0.3 Calibrate depth to scope
+
+| Scope | Minimum enforcement |
+|---|---|
+| Trivial (typo, comment) | Universal checklist §12 — quick pass |
+| Local (single module) | §2–3 for touched layers + active profile P0 items |
+| Feature / new API or contract | Full §2–11 + profile invariants + failure paths |
+| Architecture / multi-service | All sections + explicit tradeoff note + rollback |
+
+### 0.4 Enforcement order
+
+1. **Profile P0 invariants** (Section 1) — never violate for detected domain  
+2. **Universal invariants** (Section 2) — always apply  
+3. **Layer-specific anti-patterns** (Sections 3–11) — apply to code you touch  
+4. **Master checklist** (Section 12) — before PR / task complete  
+
+---
+
+## 1. DYNAMIC SPECIALIZATION ENGINE (CONTEXT-AWARE PRIORITIZATION)
+
+### 1.1 Profile activation rules
+
+- **Multiple profiles** may apply (e.g., B2B SaaS + AI agent + Event-driven).
+- When profiles **conflict**, prefer the **higher-severity** invariant (safety > money > privacy > availability > speed).
+- **LMP / microservice layout:** When `services/<name>/` exists, also enforce layered `routes → logic → clients` and no cross-service imports regardless of profile.
+
+### 1.2 Detection confidence
+
+| Confidence | Action |
+|---|---|
+| **High** (deps + paths + domain terms in code/docs) | Enforce profile P0 strictly; cite profile in review |
+| **Medium** (partial signals) | Apply profile P0 for touched code paths; flag assumption |
+| **Low** (guess only) | Default to PROFILE Z; ask user only if violation would be irreversible (payments, PHI, prod delete) |
+
+---
+
+### PROFILE A — Fintech, Payments & Ledgers
+
+**Detect when:** Wallets, ledgers, checkout, refunds, Stripe/Adyen/Plaid, double-entry, settlement, FX, invoicing, balance APIs.
+
+| Priority | Invariant (testable) |
+|---|---|
+| P0 | **Conservation:** No money created or destroyed in a transaction chain |
+| P0 | **Idempotency:** Retries never double-charge or double-credit |
+| P0 | **Audit immutability:** Financial facts append-only; corrections via offset entries |
+
+**Critical anti-patterns:**
+
+- Read-modify-write balances without locking, OCC version field, or atomic `UPDATE balance = balance - ?`
+- Missing client `idempotency_key` with DB/cache unique constraint on `(key, scope)`
+- `float` / `double` for currency — use integer minor units or `Decimal`
+- Multi-account writes without single ACID transaction or compensating saga + reconciliation job
+- Treating payment webhooks as authoritative without signature verification and replay protection
+
+---
+
+### PROFILE B — Healthcare, PHI & Clinical Systems
+
+**Detect when:** EHR, FHIR, HL7, PHI/PII fields, diagnoses, prescriptions, imaging, lab results, HIPAA references.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Confidentiality:** PHI encrypted in transit/rest; masked in logs and non-clinical UIs |
+| P0 | **Fail-safe:** Clinical/API failure → human review or protocol fallback — never silent wrong defaults |
+| P0 | **Audit:** Clinical actions non-repudiable (who, when, what, why) |
+
+**Critical anti-patterns:**
+
+- Logging request bodies, URLs, or errors containing patient identifiers or clinical narrative
+- Sequential integer patient IDs without tenant/clinic authorization on every read path (IDOR)
+- Substituting placeholder clinical values when upstream APIs fail
+- Unencrypted service-to-service PHI on internal networks (“trusted VPC” fallacy)
+
+---
+
+### PROFILE C — AI / ML & Agentic Systems
+
+**Detect when:** LLM SDKs, RAG, embeddings, tool-calling agents, prompt templates, guardrails, eval harnesses.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Deterministic gates:** Model output cannot directly execute irreversible mutations |
+| P0 | **Bounded execution:** Hard caps on loops, tokens, cost, wall-clock per request |
+| P0 | **Ground-truth separation:** Generated text ≠ verified facts in downstream logic |
+
+**Critical anti-patterns:**
+
+- Unbounded agent loops or recursive tool calls without `max_iterations` and budget ceiling
+- User input interpolated into system prompts without isolation (tags, structured I/O, schema validation)
+- Writing raw model outputs into RAG index / training feedback without human or rule filter
+- Blocking HTTP handlers on synchronous LLM calls for user-facing latency-sensitive routes
+- No eval regression set before prompt or model changes
+
+---
+
+### PROFILE D — B2B SaaS & Multi-Tenant
+
+**Detect when:** `tenant_id`, organizations, workspaces, RBAC, per-tenant config, row-level security.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Isolation:** Tenant A cannot read/write/list Tenant B data by any path |
+| P0 | **Fairness:** One tenant cannot exhaust shared pools (connections, CPU, rate limits) |
+| P0 | **Capability-based auth:** Permissions are capabilities, not role name string compares |
+
+**Critical anti-patterns:**
+
+- Queries without `tenant_id` (or DB RLS) on shared tables
+- Cache keys without tenant prefix (`user:42` vs `tenant:9:user:42`)
+- `if role == "Admin"` instead of `can("resource:action")`
+- Global rate limits only — no per-tenant quotas on expensive endpoints
+
+---
+
+### PROFILE E — Event-Driven & Streaming
+
+**Detect when:** Kafka, Pub/Sub, SQS, RabbitMQ, Celery, consumers, outbox, sagas, CDC.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **At-least-once + idempotent consumers** |
+| P0 | **Poison isolation:** Bad messages must not stall the partition |
+| P0 | **Ordering:** Per-aggregate sequence preserved where state depends on order |
+
+**Critical anti-patterns:**
+
+- Uncaught handler exceptions killing the consumer without DLQ
+- Assuming exactly-once delivery from the broker
+- Parallel workers processing `Paid` before `Created` for same `order_id`
+- Unbounded in-memory batch buffers in workers
+
+---
+
+### PROFILE F — E-Commerce, Inventory & Marketplaces
+
+**Detect when:** Carts, orders, SKUs, inventory reservation, shipping, promotions, sellers/buyers.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Inventory:** Reserved ≤ available (unless explicit oversell policy) |
+| P0 | **Order state machine:** Valid transitions only; no skipped states |
+| P0 | **Price at checkout:** Price locked at commit time, not display time |
+
+**Critical anti-patterns:**
+
+- Check-then-act inventory without reservation TTL or row lock
+- Double application of discounts on retry
+- Lost updates on concurrent cart merges
+
+---
+
+### PROFILE G — IoT, Edge & Cyber-Physical
+
+**Detect when:** Device telemetry, MQTT, firmware OTA, sensors, actuators, time-series at scale.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Safety interlocks** cannot be bypassed without logged override |
+| P0 | **Command authenticity** on device control paths |
+| P0 | **Backpressure** on ingest when processing lags |
+
+**Critical anti-patterns:**
+
+- Actuating devices from unauthenticated or unsigned commands
+- Blocking hot path on synchronous cloud round-trip
+- No clock skew / ordering strategy for telemetry
+
+---
+
+### PROFILE H — Government, Legal & High-Audit
+
+**Detect when:** Immutable audit logs, retention policies, approvals, FOIA, classification labels.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Tamper-evident audit trail** for privileged actions |
+| P0 | **Retention / deletion** rules enforced in code, not wiki |
+| P0 | **Separation of duties** on sensitive operations |
+
+**Critical anti-patterns:**
+
+- Overwriting audit rows; soft-delete without retention metadata
+- Single actor can submit and approve same high-risk action
+- Undocumented admin bypass endpoints
+
+---
+
+### PROFILE I — Real-Time & Collaborative
+
+**Detect when:** WebSockets, SSE, CRDT, presence, live cursors, shared documents.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Auth on every channel join** |
+| P0 | **Conflict strategy explicit** (LWW, OT, CRDT) |
+| P0 | **Reconnect** with state sync and jitter |
+
+**Critical anti-patterns:**
+
+- Broadcasting events before authorization check
+- Unbounded fan-out on single write
+- No heartbeat / stale connection cleanup
+
+---
+
+### PROFILE J — Analytics, ETL & Data Warehouse
+
+**Detect when:** dbt, Airflow, Spark, batch pipelines, BI exports, CDC to warehouse.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Lineage:** Source → transform → sink traceable |
+| P0 | **Idempotent batch runs** (safe replays) |
+| P0 | **PII handling** in exports (masking, aggregation thresholds) |
+
+**Critical anti-patterns:**
+
+- Full-table scans in prod OLTP for analytics
+- Non-deterministic transforms breaking replay
+- Joining production PII into dev environments
+
+---
+
+### PROFILE Z — General Application (default)
+
+**Use when:** No specific profile triggers, or greenfield with unknown domain.
+
+| Priority | Invariant |
+|---|---|
+| P0 | **Correctness** over speed for mutations |
+| P0 | **Explicit contracts** at system boundaries |
+| P0 | **Fail loud in dev, fail safe for users in prod** |
+
+Apply all of **Sections 2–12** without domain-specific elevation.
+
+---
+
+## 2. UNIVERSAL INVARIANTS (ALWAYS APPLY)
+
+State these as **testable claims** for non-trivial work:
+
+| # | Invariant | Violation symptom |
+|---|---|---|
+| U1 | Inputs validated at boundary before trust | Injection, corruption, crashes |
+| U2 | Secrets never in source, logs, or client payloads | Breach, compliance failure |
+| U3 | External calls have timeout + bounded retry | Hung threads, cascades |
+| U4 | Errors are structured and safe for clients | Fragile clients, info leak |
+| U5 | List endpoints bounded (pagination/cursor) | OOM, timeouts |
+| U6 | Mutations idempotent or explicitly deduped | Duplicate records on retry |
+| U7 | Observability: correlation ID across hops | Un-debuggable production |
+| U8 | Tests assert behavior, not mock choreography | False confidence |
+| U9 | No silent `except` — failures visible | Hidden corruption |
+| U10 | Configuration single-sourced (`settings` / env — see `no-hardcoded-env-vars`) | Env drift, secret leak |
+
+---
+
+## 3. ARCHITECTURAL ANTI-PATTERNS (DOMAIN-AGNOSTIC)
+
+### 3.1 Tight coupling & boundary violations
+
+- **Mistake:** Importing another service’s modules, ORM models, or DB helpers across deployable boundaries.
+- **Why:** Coordinated deploys, ripple breakage, hidden contracts.
+- **Rule:** Black-box services. Integrate via versioned APIs, events, or SDK generated from OpenAPI/Proto — never shared internal code paths.
+
+### 3.2 God module / monolith-in-disguise
+
+- **Mistake:** One deployable owns unrelated domains; files >>400 lines of mixed concerns.
+- **Why:** Cannot scale, test, or own independently.
+- **Rule:** One bounded context per service/module. Split by **change reason**, not technical layer alone.
+
+### 3.3 Distributed monolith
+
+- **Mistake:** Shared database tables across services; mandatory sync chain of 3+ calls per user action; deploy-all-together releases.
+- **Why:** Microservice ops cost without isolation benefit.
+- **Rule:** Database-per-service (logical or physical). Long workflows → async jobs, sagas, outbox — not blocking chains.
+
+### 3.4 Chatty integration
+
+- **Mistake:** N+1 HTTP/RPC calls to assemble one response.
+- **Why:** Latency multiplies; failure combinations explode.
+- **Rule:** Batch APIs, materialized read models, BFF aggregation, or denormalized cache — measure p99 call fan-out.
+
+### 3.5 Missing API versioning
+
+- **Mistake:** Breaking JSON shapes on live URLs.
+- **Why:** Mobile and partner clients break on deploy.
+- **Rule:** Version prefix (`/v1/`). Breaking → new version; deprecate with timeline.
+
+### 3.6 Shared mutable process state
+
+- **Mistake:** Module-level dicts/lists mutated per request; singleton caches without TTL.
+- **Why:** Race conditions; horizontal scale breaks; memory leaks.
+- **Rule:** Request-scoped state only. Shared cache → external store with TTL and namespacing.
+
+### 3.7 Leaky abstractions upward
+
+- **Mistake:** DB schema, queue names, vendor SDK types leak into HTTP responses or UI models.
+- **Why:** Refactors become impossible; security exposure.
+- **Rule:** Map at boundaries (DTO / Pydantic response models / view models).
+
+---
+
+## 4. CODE-LEVEL ANTI-PATTERNS (DOMAIN-AGNOSTIC)
+
+### 4.1 Fat transport layer (routes/controllers/handlers)
+
+- **Mistake:** SQL, business rules, third-party calls inside HTTP handlers.
+- **Why:** Untestable; framework lock-in; cannot reuse from CLI/workers.
+- **Rule:** Transport parses auth + input, delegates to **logic/service layer**, maps output. *(LMP: `routes.py` → `logic.py`.)*
+
+### 4.2 Fat models vs anemic everything
+
+- **Mistake:** ORM/Pydantic models that call networks; or zero validation on DTOs.
+- **Why:** Cycles, duplicated validation, runtime surprises.
+- **Rule:** Models validate shape; orchestration in logic layer; domain rules as validators or domain services.
+
+### 4.3 Untyped internals (`dict`, `any`, `interface{}`)
+
+- **Mistake:** Passing loose JSON maps through layers.
+- **Why:** KeyError at runtime; refactors fail silently.
+- **Rule:** Typed schemas at every boundary; static analysis enabled (`mypy`, `tsc`, etc.).
+
+### 4.4 Copy-paste divergence
+
+- **Mistake:** Same 5+ lines in two places with drift.
+- **Rule:** Extract once; parameterize differences.
+
+### 4.5 Broad exception swallowing
+
+- **Mistake:** `except Exception: pass` or generic catch returning 200.
+- **Rule:** Catch specific types; log traceback + context; map to safe client errors.
+
+### 4.6 Missing type hints / null discipline
+
+- **Mistake:** Untyped public functions; nullable fields unchecked.
+- **Rule:** Types on all public APIs; explicit optional handling.
+
+### 4.7 Sync-over-async / blocking the event loop
+
+- **Mistake:** Sync I/O or CPU work inside async handlers.
+- **Rule:** Async clients; offload blocking via thread pool / worker queue.
+
+### 4.8 Hardcoded configuration
+
+- **Mistake:** URLs, keys, limits in source.
+- **Rule:** See `no-hardcoded-env-vars` — `settings` singleton only.
+
+---
+
+## 5. DATA & STATE ANTI-PATTERNS (DOMAIN-AGNOSTIC)
+
+### 5.1 N+1 queries
+
+- Loop + query per row. **Fix:** JOIN, `IN (...)`, DataLoader, batch RPC.
+
+### 5.2 Missing indexes
+
+- Filter/sort on unindexed columns at scale. **Fix:** Index review with EXPLAIN for each new hot path.
+
+### 5.3 Large blobs in OLTP
+
+- PDF/HTML/images in row storage. **Fix:** Object storage + pointer metadata.
+
+### 5.4 Ignoring replication lag
+
+- Read replica immediately after write. **Fix:** Read-your-writes routing or tolerate staleness in UX.
+
+### 5.5 Lost updates & race conditions
+
+- Last-write-wins without version column. **Fix:** Optimistic locking, compare-and-swap, or serializable isolation where needed.
+
+### 5.6 Unbounded transactions
+
+- Long locks holding user-facing requests. **Fix:** Short transactions; saga for multi-step.
+
+### 5.7 Schema drift without migration discipline
+
+- Manual prod DDL. **Fix:** Versioned migrations; backward-compatible expand-contract.
+
+---
+
+## 6. API & CONTRACT ANTI-PATTERNS (DOMAIN-AGNOSTIC)
+
+### 6.1 Inconsistent error shapes
+
+- Mix of `error`, `message`, `detail`, plain text, stack traces.
+- **Rule:** One schema, e.g. `{"detail": string, "errorCode": string}` (+ optional `fieldErrors` for validation).
+
+### 6.2 Non-idempotent POST
+
+- Retries create duplicates. **Fix:** Idempotency-Key header + unique constraint.
+
+### 6.3 Unpaginated collections
+
+- **Rule:** Default `limit` ≤ 100; max cap enforced; cursor preferred for live feeds.
+
+### 6.4 Leaking internals
+
+- Stack traces, SQL, internal IDs in JSON. **Fix:** Map to public DTOs; generic 500 message.
+
+### 6.5 Sync long-running work
+
+- User waits >5–10s on HTTP. **Fix:** `202` + `jobId` + poll/webhook; progress events.
+
+### 6.6 Weak input validation
+
+- Trust URL, path, HTML, regex from client. **Fix:** Allowlists, max lengths, canonicalization, SSRF checks (§8.2).
+
+### 6.7 Ambiguous HTTP semantics
+
+- GET with side effects; DELETE returning body without contract.
+- **Rule:** REST verbs match semantics; document exceptions.
+
+### 6.8 Missing contract tests
+
+- Hand-written clients drift from server. **Fix:** OpenAPI/Proto as source of truth; CI contract diff.
+
+---
+
+## 7. PERFORMANCE & SCALABILITY (DOMAIN-AGNOSTIC)
+
+### 7.1 No caching plan
+
+- Repeat identical reads. **Fix:** TTL cache; invalidate on write; stampede protection.
+
+### 7.2 Unbounded concurrency
+
+- `gather` thousands of tasks. **Fix:** Semaphores, bulkheads, queue depth limits.
+
+### 7.3 No timeouts
+
+- **Rule:** Connect + read timeouts on every outbound call; DB statement timeouts.
+
+### 7.4 Connection churn
+
+- New TCP/DB per request. **Fix:** Pools in lifespan/startup.
+
+### 7.5 Memory blowups
+
+- Load full file/result set. **Fix:** Streaming, pagination, generators.
+
+### 7.6 Hot keys & skew
+
+- Single shard or cache key for global counter. **Fix:** Shard keys, approximate aggregates, local increments + flush.
+
+### 7.7 Missing backpressure
+
+- Producer outruns consumer. **Fix:** Rate limit ingest; pause acknowledgments; scale consumers with lag metric.
+
+---
+
+## 8. RELIABILITY & RESILIENCE (DOMAIN-AGNOSTIC)
+
+### 8.1 Retry storm (no jitter)
+
+- **Fix:** Exponential backoff + full jitter; max attempts; retry only idempotent ops.
+
+### 8.2 No circuit breaker
+
+- Hammer dead dependency. **Fix:** Open circuit after failure threshold; half-open probe.
+
+### 8.3 No health endpoints
+
+- **Fix:** Lightweight `GET /health` (liveness); `GET /ready` optional (deps, without heavy queries).
+
+### 8.4 No graceful shutdown
+
+- SIGKILL mid-write. **Fix:** Drain connections; stop accepting; flush outbox; SIGTERM handler.
+
+### 8.5 Single point of failure
+
+- One region, one broker, one admin. **Fix:** Document RTO/RPO; multi-AZ; rehearse failover.
+
+### 8.6 Missing bulkheads
+
+- One slow tenant blocks all. **Fix:** Per-tenant pools and timeouts.
+
+### 8.7 No reconciliation
+
+- Partial saga success. **Fix:** Scheduled reconcile jobs; alerts on drift.
+
+---
+
+## 9. SECURITY (DOMAIN-AGNOSTIC)
+
+### 9.1 Injection (SQL, NoSQL, Cypher, LDAP, command)
+
+- String concat with user input. **Fix:** Parameterized queries; ORM; input typing.
+
+### 9.2 SSRF
+
+- Server fetches user URL. **Fix:** Allowlist hosts; block private/link-local/metadata IPs; no redirects to internal.
+
+### 9.3 Broken access control (IDOR, privilege escalation)
+
+- **Fix:** Authorize every object access; default deny; test horizontal + vertical escalation.
+
+### 9.4 Secrets in repo/logs
+
+- **Fix:** Secret manager; pre-commit secret scan; log redaction.
+
+### 9.5 Overly permissive CORS / CSP gaps
+
+- `*` origins in prod. **Fix:** Explicit origin list per environment.
+
+### 9.6 Missing rate limiting & abuse controls
+
+- **Fix:** Global + per-identity limits; cost-based throttling on expensive endpoints.
+
+### 9.7 Insufficient auth session hygiene
+
+- Long-lived tokens without rotation; missing revocation on role change.
+
+### 9.8 Supply chain risk
+
+- Unpinned deps; unverified packages. **Fix:** Lockfiles; SBOM; vulnerability CI gate.
+
+### 9.9 Prompt / tool injection (when AI present)
+
+- Tools callable with user-controlled args without schema validation. **Fix:** Allowlisted tools; human gate on destructive tools.
+
+---
+
+## 10. OBSERVABILITY (DOMAIN-AGNOSTIC)
+
+### 10.1 Unstructured logs / print debugging
+
+- **Fix:** JSON logs; severity; stable field names.
+
+### 10.2 Missing correlation ID
+
+- **Fix:** Generate/propagate `requestId` / `traceparent` on ingress; inject in logs and outbound headers.
+
+### 10.3 Logging secrets & PII
+
+- **Fix:** Allowlist fields; centralized scrubber; sampling for high-cardinality debug.
+
+### 10.4 Metrics without SLOs
+
+- **Fix:** RED/USE metrics; alert on user-visible symptoms (error rate, p95 latency), not only CPU.
+
+### 10.5 No tracing on distributed paths
+
+- **Fix:** OpenTelemetry on inbound + outbound HTTP and DB.
+
+---
+
+## 11. TESTING (DOMAIN-AGNOSTIC)
+
+### 11.1 No tests on core logic
+
+- **Fix:** Unit tests on pure logic; >80% coverage target on critical paths (per TDD rule).
+
+### 11.2 Testing mocks instead of behavior
+
+- Asserting `mock.assert_called`. **Fix:** Assert outputs, DB state, HTTP status, side effects.
+
+### 11.3 Flaky time/order/network tests
+
+- **Fix:** Freeze time; deterministic fixtures; hermetic unit layer.
+
+### 11.4 Unit tests hitting real external systems
+
+- **Fix:** Mock at `clients/` / adapter boundary; integration in dedicated env only.
+
+### 11.5 Missing failure-path tests
+
+- Timeouts, 409 conflicts, validation errors, partial saga — not only happy path.
+
+### 11.6 No load / soak for scale-critical features
+
+- **Fix:** Load test before claiming 10× readiness.
+
+---
+
+## 12. DEPLOYMENT, INFRA & WORKFLOW (DOMAIN-AGNOSTIC)
+
+### 12.1 Environment drift
+
+- Different deps/config shapes per env. **Fix:** Same image; config via env; parity checklist.
+
+### 12.2 Unpinned dependencies
+
+- Floating ranges in prod. **Fix:** Exact pins; automated update PRs with CI.
+
+### 12.3 Inefficient container builds
+
+- `COPY .` before dep install. **Fix:** Layer cache: deps first, code last; slim base.
+
+### 12.4 Missing probes
+
+- **Fix:** Startup + liveness wired to real `/health`.
+
+### 12.5 Giant PRs & rubber-stamp review
+
+- **Fix:** ~300 LOC target; one concern per PR; reviewers use this rule as checklist.
+
+### 12.6 Skipping design brief on non-trivial work
+
+- **Fix:** ETB in `project.md` + approval before code (per user workflow rules).
+
+### 12.7 No rollback plan
+
+- **Fix:** Feature flags; backward-compatible migrations; documented revert steps.
+
+---
+
+## 13. MASTER PRE-CODING CHECKLIST (MANDATORY)
+
+Copy into PR description or task close-out when applicable:
+
+**Context**
+- [ ] Domain profile(s) detected: ___
+- [ ] Profile P0 invariants listed and enforced
+- [ ] Scope calibrated (trivial / local / feature / architecture)
+
+**Architecture & code**
+- [ ] No cross-boundary imports; APIs/events only
+- [ ] Transport thin; logic owns orchestration
+- [ ] Typed contracts at boundaries; no raw dicts through layers
+- [ ] Config via `settings` / env — no hardcoded secrets or URLs
+- [ ] Async-safe: no blocking in async handlers
+- [ ] No shared mutable module state
+
+**Data & API**
+- [ ] No N+1; indexes for hot queries
+- [ ] Pagination on lists; idempotency on mutations
+- [ ] Standard error shape; no internal leak
+- [ ] Long work async (202 + job) not blocking HTTP
+
+**Resilience & security**
+- [ ] Timeouts + bounded retries + jitter on outbound calls
+- [ ] Circuit breaker / fail-fast where dependency critical
+- [ ] Parameterized queries; SSRF checks on URLs
+- [ ] AuthZ on every object access; rate limits considered
+
+**Observability & quality**
+- [ ] Structured logs + correlation ID; no PII/secrets logged
+- [ ] Health endpoints present
+- [ ] Unit tests on behavior; clients mocked; failure paths covered
+- [ ] Dependencies pinned; Dockerfile layer order sane
+
+---
+
+## 14. ANTI-PATTERN → MITIGATION QUICK MAP
+
+| Symptom in prod | Likely anti-pattern | First fix |
+|---|---|---|
+| Duplicate charges | Non-idempotent POST | Idempotency key + unique constraint |
+| Random 500s under load | Blocking event loop | Async client or thread offload |
+| Slow list API | N+1 or no pagination | Batch query + limit/cursor |
+| OOM on export | Unbounded read | Stream/chunk |
+| Cross-tenant data leak | Missing tenant filter | RLS + middleware guard |
+| Agent runaway cost | Unbounded loop | max_iterations + budget kill |
+| Stale UI after write | Replica lag read | Read primary or delay UX |
+| Retry amplified outage | No jitter | Exponential backoff + cap |
+
+---
+
+## 15. RELATIONSHIP TO OTHER RULES
+
+| Topic | Owner rule |
+|---|---|
+| Deep design reasoning, tradeoffs, N-order effects | `systems-thinking` |
+| Config / env vars | `no-hardcoded-env-vars` |
+| Red-green-refactor test discipline | `test-driven-development` |
+| Git push / rebase safety | `safe-git-push` |
+| LMP microservice code review procedure | `lmp-code-review` skill |
+
+**This rule does not replace those** — it adds **actionable anti-patterns** and **automatic domain prioritization** before and during implementation.
