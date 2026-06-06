@@ -1,9 +1,13 @@
 """Application settings — single source for env config (no hardcoded secrets)."""
 
+from __future__ import annotations
+
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from thekedar_shared.exceptions import ConfigurationError
 
 
 class Settings(BaseSettings):
@@ -84,6 +88,15 @@ class Settings(BaseSettings):
     gcp_project_id: str | None = Field(default=None, alias="GCP_PROJECT_ID")
     gcp_region: str = Field(default="us-central1", alias="GCP_REGION")
 
+    # M7 — context, IDE execution, LLM
+    local_ide_enabled: bool = Field(default=False, alias="THEKEDAR_LOCAL_IDE")
+    local_repo_path: str | None = Field(default=None, alias="THEKEDAR_LOCAL_REPO_PATH")
+    ide_adapter: str = Field(default="auto", alias="THEKEDAR_IDE_ADAPTER")
+    llm_provider: str = Field(default="mock", alias="THEKEDAR_LLM_PROVIDER")
+    context_reindex_hours: int = Field(default=24, alias="THEKEDAR_CONTEXT_REINDEX_HOURS")
+    approval_ttl_hours: int = Field(default=72, alias="THEKEDAR_APPROVAL_TTL_HOURS")
+    max_coding_iterations: int = Field(default=25, alias="THEKEDAR_MAX_CODING_ITERATIONS")
+
     # GitHub webhooks
     github_webhook_secret: SecretStr | None = Field(default=None, alias="GITHUB_WEBHOOK_SECRET")
 
@@ -92,7 +105,43 @@ class Settings(BaseSettings):
         default="http://localhost:8080", alias="THEKEDAR_WEBHOOK_INGRESS_URL"
     )
 
+    # M8 — resilience and fail-closed prod
+    llm_primary: str = Field(default="gemini", alias="THEKEDAR_LLM_PRIMARY")
+    llm_fallback: str = Field(default="", alias="THEKEDAR_LLM_FALLBACK")
+    provider_retry_max: int = Field(default=3, alias="THEKEDAR_PROVIDER_RETRY_MAX")
+    circuit_failure_threshold: int = Field(
+        default=5, alias="THEKEDAR_CIRCUIT_FAILURE_THRESHOLD"
+    )
+    circuit_open_seconds: int = Field(default=60, alias="THEKEDAR_CIRCUIT_OPEN_SECONDS")
+    outbox_max_attempts: int = Field(default=8, alias="THEKEDAR_OUTBOX_MAX_ATTEMPTS")
+    allow_default_seed: bool = Field(default=False, alias="THEKEDAR_ALLOW_DEFAULT_SEED")
+    strict_integrations: bool = Field(default=False, alias="THEKEDAR_STRICT_INTEGRATIONS")
+    mcp_fallback_direct_github: bool = Field(
+        default=True, alias="THEKEDAR_MCP_FALLBACK_DIRECT_GITHUB"
+    )
+    validate_on_startup: bool = Field(default=False, alias="THEKEDAR_VALIDATE_ON_STARTUP")
+    otel_enabled: bool = Field(default=False, alias="THEKEDAR_OTEL_ENABLED")
+    otel_exporter_endpoint: str | None = Field(
+        default=None, alias="OTEL_EXPORTER_OTLP_ENDPOINT"
+    )
+
+    @model_validator(mode="after")
+    def _validate_staging_prod(self) -> Settings:
+        if self.environment in ("staging", "prod"):
+            if self.demo_mode:
+                raise ConfigurationError("THEKEDAR_DEMO_MODE must be false in staging/prod")
+            if self.llm_provider == "mock":
+                raise ConfigurationError(
+                    "THEKEDAR_LLM_PROVIDER=mock is not allowed in staging/prod"
+                )
+        return self
+
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if settings.validate_on_startup and settings.environment in ("staging", "prod"):
+        from thekedar_shared.prod_validation import assert_production_settings
+
+        assert_production_settings(settings)
+    return settings

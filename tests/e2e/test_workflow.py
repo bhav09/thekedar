@@ -2,7 +2,7 @@
 
 import pytest
 from thekedar_orchestrator.graph import build_graph
-from thekedar_shared.db import PendingApproval, TicketCodeLink
+from thekedar_shared.db import PendingApproval
 from thekedar_shared.schemas import Channel, MessageEvent
 
 
@@ -40,12 +40,14 @@ async def test_e2e_architect_to_coder(orchestrator_services, session_factory) ->
         {"message": coder_msg.model_dump(mode="json"), "run_id": "e2e-2"}
     )
     assert coder["workflow"] == "coder"
-    assert coder.get("pr_url")
+    assert "Impact assessment" in coder["reply"]
+    assert coder.get("status") == "awaiting_approval"
 
     session = session_factory()
-    link = session.query(TicketCodeLink).filter_by(issue_key="THE-42").first()
-    assert link is not None
-    assert link.pr_url
-    approval = session.query(PendingApproval).filter_by(status="pending").first()
+    approval = (
+        session.query(PendingApproval)
+        .filter_by(run_id="e2e-2", approval_type="impact_review")
+        .first()
+    )
     assert approval is not None
     session.close()

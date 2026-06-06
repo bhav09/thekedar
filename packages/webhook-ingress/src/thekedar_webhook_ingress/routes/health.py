@@ -2,6 +2,7 @@
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
+from sqlalchemy import create_engine, text
 from thekedar_shared.settings import get_settings
 
 router = APIRouter(tags=["health"])
@@ -27,7 +28,18 @@ async def readiness(request: Request) -> dict[str, str]:
         return {
             "status": "not_ready",
             "service": "webhook-ingress",
-            "detail": str(exc),
+            "detail": f"redis: {exc}",
+        }
+    try:
+        engine = create_engine(settings.database_url, pool_pre_ping=True)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        engine.dispose()
+    except Exception as exc:
+        return {
+            "status": "not_ready",
+            "service": "webhook-ingress",
+            "detail": f"postgres: {exc}",
         }
     return {
         "status": "ready",

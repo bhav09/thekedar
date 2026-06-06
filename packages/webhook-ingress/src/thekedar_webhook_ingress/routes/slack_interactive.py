@@ -1,4 +1,4 @@
-"""Slack interactive components — approval buttons (M4)."""
+"""Slack interactive components — approval buttons (M4/M7)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from thekedar_message_adapter import verify_slack_signature
 from thekedar_shared.audit import log_audit
 from thekedar_shared.db import AgentRun, PendingApproval
+from thekedar_shared.resume import publish_run_resume_sync
 from thekedar_shared.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -73,9 +74,10 @@ async def slack_interactive(
         item.status = "approved"
         if item.run_id:
             run = session.get(AgentRun, item.run_id)
-            if run:
-                run.status = "completed"
+            if run and item.approval_type in ("impact_review", "plan_review", "publish_review"):
+                run.status = "running"
         log_audit(session, item.tenant_id, user, "slack.approve", item.summary)
+        decision = "approved"
     elif action_id == "reject_action":
         item.status = "rejected"
         if item.run_id:
@@ -83,10 +85,23 @@ async def slack_interactive(
             if run:
                 run.status = "rejected"
         log_audit(session, item.tenant_id, user, "slack.reject", item.summary)
+        decision = "rejected"
     else:
         return Response(content="Unknown action", media_type="text/plain")
 
     session.commit()
+
+    if item.run_id and item.approval_type in ("impact_review", "plan_review", "publish_review"):
+        try:
+            publish_run_resume_sync(
+                settings,
+                run_id=item.run_id,
+                approval_id=approval_id,
+                decision=decision,
+            )
+        except Exception:
+            logger.exception("Failed to publish resume event for run %s", item.run_id)
+
     return Response(
         content=json.dumps(
             {
@@ -96,5 +111,3 @@ async def slack_interactive(
         ),
         media_type="application/json",
     )
-
-

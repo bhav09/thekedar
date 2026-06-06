@@ -40,6 +40,9 @@ class WorkspaceService:
             seed_workspaces_from_config(self._session_factory, settings.workspace_config_path)
             return
 
+        if settings.environment != "local" or not settings.allow_default_seed:
+            return
+
         session = self._session_factory()
         try:
             if session.query(Workspace).count() == 0:

@@ -37,18 +37,19 @@ async def test_graph_architect_jira(orchestrator_services, sample_slack_message)
 
 
 @pytest.mark.asyncio
-async def test_graph_coder_creates_pr(orchestrator_services, sample_coder_message) -> None:
+async def test_graph_coder_starts_impact_gate(orchestrator_services, sample_coder_message) -> None:
     graph = build_graph(orchestrator_services)
     result = await graph.ainvoke(
         {"message": sample_coder_message.model_dump(mode="json"), "run_id": "run-2"}
     )
     assert result["workflow"] == "coder"
-    assert "PR ready" in result["reply"]
+    assert "Impact assessment" in result["reply"]
     assert result.get("issue_key") == "THE-42"
+    assert result.get("status") == "awaiting_approval"
 
 
 @pytest.mark.asyncio
-async def test_graph_coder_merge_requires_approval(orchestrator_services) -> None:
+async def test_graph_coder_deploy_flags_tradeoffs(orchestrator_services) -> None:
     graph = build_graph(orchestrator_services)
     message = MessageEvent(
         channel=Channel.SLACK,
@@ -64,5 +65,6 @@ async def test_graph_coder_merge_requires_approval(orchestrator_services) -> Non
         {"message": message.model_dump(mode="json"), "run_id": "run-3"}
     )
     assert result["workflow"] == "coder"
-    assert "Approval required" in result["reply"]
+    assert "Impact assessment" in result["reply"]
+    assert "Tradeoffs" in result["reply"] or "Production" in result["reply"]
     assert result.get("status") == "awaiting_approval"

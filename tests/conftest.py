@@ -11,8 +11,13 @@ from thekedar_shared.db import init_db
 from thekedar_shared.schemas import Channel, MessageEvent
 from thekedar_shared.settings import Settings, get_settings
 
+os.environ.setdefault("THEKEDAR_ALLOW_DEFAULT_SEED", "true")
 os.environ.setdefault("THEKEDAR_DEMO_MODE", "true")
 os.environ.setdefault("THEKEDAR_ENVIRONMENT", "local")
+os.environ.setdefault("THEKEDAR_LOCAL_IDE", "1")
+os.environ.setdefault("THEKEDAR_LLM_PROVIDER", "mock")
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+os.environ.setdefault("THEKEDAR_LOCAL_REPO_PATH", _repo_root)
 get_settings.cache_clear()
 
 

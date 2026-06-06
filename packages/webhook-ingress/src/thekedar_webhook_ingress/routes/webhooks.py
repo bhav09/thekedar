@@ -127,7 +127,7 @@ async def _enqueue_events(
     correlation_id = getattr(request.state, "request_id", "")
 
     for event in events:
-        if not await idempotency.claim(event.idempotency_key):
+        if await idempotency.is_claimed(event.idempotency_key):
             continue
         await bus.publish_inbound(
             {
@@ -135,3 +135,4 @@ async def _enqueue_events(
                 "message": event.model_dump(mode="json"),
             }
         )
+        await idempotency.claim(event.idempotency_key)

@@ -7,6 +7,10 @@ dependencies = [
     "thekedar-shared",
     "thekedar-message-adapter",
     "thekedar-mcp-policy",
+    "thekedar-context",
+    "thekedar-execution",
+    "thekedar-ide-adapters",
+    "thekedar-resilience",
     "langgraph>=0.3",
     "httpx>=0.28",
     "redis>=5.2",
@@ -16,6 +20,10 @@ dependencies = [
 thekedar-shared = { workspace = true }
 thekedar-message-adapter = { workspace = true }
 thekedar-mcp-policy = { workspace = true }
+thekedar-context = { workspace = true }
+thekedar-execution = { workspace = true }
+thekedar-ide-adapters = { workspace = true }
+thekedar-resilience = { workspace = true }
 
 [project.scripts]
 thekedar-orchestrator = "thekedar_orchestrator.main:run"

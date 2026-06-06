@@ -29,6 +29,7 @@ async def test_slack_url_verification(app) -> None:
 @pytest.mark.asyncio
 async def test_slack_event_enqueued(app) -> None:
     mock_redis = AsyncMock()
+    mock_redis.exists = AsyncMock(return_value=0)
     mock_redis.set = AsyncMock(return_value=True)
     mock_redis.lpush = AsyncMock(return_value=1)
 
