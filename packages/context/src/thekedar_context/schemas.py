@@ -75,6 +75,11 @@ class ImpactReport(BaseModel):
         return "\n".join(lines)
 
 
+class FileEvidence(BaseModel):
+    filepath: str
+    chunk_ids: list[str] = Field(default_factory=list)
+
+
 class ExecutionPlan(BaseModel):
     summary: str
     files_to_touch: list[str] = Field(default_factory=list)
@@ -83,6 +88,7 @@ class ExecutionPlan(BaseModel):
     rollback_strategy: str = "Revert branch and close PR"
     estimated_minutes: int = 15
     estimated_cost_usd: float = 0.25
+    evidence: list[FileEvidence] = Field(default_factory=list)
 
     def to_chat_summary(self, dashboard_url: str, run_id: str) -> str:
         files = "\n".join(f"• `{f}`" for f in self.files_to_touch[:10]) or "• TBD"

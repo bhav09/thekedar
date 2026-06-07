@@ -27,6 +27,12 @@ def validate_production_settings(settings: Settings) -> list[str]:
         if not settings.slack_bot_token and not settings.whatsapp_access_token:
             errors.append("SLACK_BOT_TOKEN or WHATSAPP_ACCESS_TOKEN required")
 
+    # M5 / Phase C Remote Executor validation
+    if settings.remote_executor != "gcp":
+        errors.append("THEKEDAR_REMOTE_EXECUTOR must be set to 'gcp' in staging/prod")
+    if not settings.gcp_project_id:
+        errors.append("GCP_PROJECT_ID is required in staging/prod")
+
     return errors
 
 

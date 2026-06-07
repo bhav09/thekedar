@@ -1,22 +1,26 @@
-# Thekedar
+# <img src="thekedar-logo.png" width="60" height="60" valign="middle" /> Thekedar
 
 Headless MCP orchestrator: connect WhatsApp, Slack, Jira, GitHub, and cloud dev environments so your agent keeps working while your laptop is closed.
 
 Thekedar receives messages on public webhooks, ACKs fast, processes work asynchronously, and replies with summaries and PR links (never raw diffs in chat). A unified dashboard shows runs, ticket-to-code traceability, approvals, cost, and audit trails.
 
+---
+
 ## Why Thekedar?
 
 **Thekedar** (ठेकेदार) is Hindi/Urdu for *contractor*: the person who takes responsibility for a build, coordinates workers, and delivers the finished job. That is the role this project plays for your stack. You message from Slack or WhatsApp; Thekedar routes work to agents, runs code on cloud workstations, opens PRs, and reports back. You stay the owner; Thekedar is the headless contractor that keeps the site running when you are offline.
 
-## IDE and coding tools (M7)
+---
 
-`@Coder` now runs a **multi-stage pipeline**: global context index, impact assessment, plan approval, IDE-backed coding + tests, completion report, and publish (branch/PR). See [docs/CODING_PIPELINE.md](docs/CODING_PIPELINE.md) and [docs/IDE_SETUP.md](docs/IDE_SETUP.md).
+## IDE and Coding Tools
+
+`@Coder` runs a **multi-stage pipeline**: global context index, impact assessment, plan approval, IDE-backed coding + tests, completion report, and publish (branch/PR). See [docs/CODING_PIPELINE.md](docs/CODING_PIPELINE.md) and [docs/IDE_SETUP.md](docs/IDE_SETUP.md).
 
 | Tool | Status | How it relates |
 |------|--------|----------------|
-| **Claude Code** | Adapter (`THEKEDAR_IDE_ADAPTER=claude`) | CLI on Cloud Workstation or local fallback; falls back to mock in demo mode |
+| **Claude Code** | Adapter (`THEKEDAR_IDE_ADAPTER=claude`) | CLI on Cloud Workstation or local fallback |
 | **Cursor** | Adapter (`cursor`) | Uses `cursor-agent` or `cursor agent` when installed |
-| **VS Code** | Adapter + stub extension | Remote-SSH to Cloud WS; [extensions/vscode-thekedar/](extensions/vscode-thekedar/) webview planned |
+| **VS Code** | Complete Extension | Bidirectional database task queue polling and executing locally inside VS Code or Code-OSS VM |
 | **Antigravity** | Adapter (`antigravity`) | Uses `agy` / `antigravity` CLI on GCP-native workstations |
 | **Mock** | Default in demo | Commits marker + stub test for OSS onboarding without IDE CLIs |
 
@@ -26,120 +30,106 @@ Thekedar receives messages on public webhooks, ACKs fast, processes work asynchr
 
 **Still not in chat:** raw diffs (summaries + dashboard links only). Bifrost MCP gateway remains orchestrator-side; IDEs connect via adapters on the execution plane.
 
-## Architecture
+---
+
+## Architecture & How It Works
+
+Thekedar is designed as a **cloud-first headless orchestrator** that splits fast, edge-level ingestion from durable, asynchronous agent execution.
+
+### High-Level System Architecture
 
 ```mermaid
-flowchart TD
-    Slack[Slack] --> Ingress[webhook-ingress]
-    WhatsApp[WhatsApp] --> Ingress
-    Ingress --> Redis[Redis queue]
-    Redis --> Worker[orchestrator-worker]
-    Worker --> Dashboard[dashboard-hub]
-    Worker --> Jira[Jira API]
-    Worker --> GitHub[GitHub API]
-    Worker --> WS[Cloud Workstation]
+flowchart TB
+    subgraph external [External Channels & Integrations]
+        Slack[Slack]
+        WhatsApp[WhatsApp]
+        GitHub[GitHub Webhooks]
+        Jira[Jira API]
+    end
+
+    subgraph edge [Edge & Ingestion Layer]
+        Ingress[webhook-ingress]
+        Dashboard[dashboard-hub]
+    end
+
+    subgraph async [Durable Queue & Worker]
+        Bus[(Redis / GCP Pub-Sub)]
+        Worker[orchestrator-worker]
+        Ledger[(PostgreSQL Run Ledger)]
+        Outbox[(Outbound Outbox)]
+    end
+
+    subgraph intelligence [Intelligence & Execution Plane]
+        Graph[LangGraph Router]
+        Pipeline[CoderPipeline]
+        Context[Context Index & Retriever]
+        IDE[IDE Adapters]
+        WS[Cloud Workstation]
+    end
+
+    Slack --> Ingress
+    WhatsApp --> Ingress
+    GitHub --> Ingress
+    Dashboard --> Ledger
+
+    Ingress -->|Verify & Idempotency| Bus
+    Bus --> Worker
+    Worker --> Ledger
+    Worker --> Graph
+    
+    Graph -->|Route Coder Intent| Pipeline
+    Pipeline --> Context
+    Pipeline --> IDE
+    Pipeline --> WS
+    Pipeline --> GitHub
+    Pipeline --> Jira
+    
+    Worker --> Outbox
+    Outbox --> Slack
+    Outbox --> WhatsApp
 ```
 
-## Quick start (5 minutes)
+### End-to-End Execution Flow
 
-Requires [Docker](https://docs.docker.com/get-docker/) and [uv](https://docs.astral.sh/uv/).
+```mermaid
+sequenceDiagram
+    participant Channel as Slack / WhatsApp
+    participant Ingress as webhook-ingress
+    participant Bus as Redis / PubSub
+    participant Worker as orchestrator-worker
+    participant Graph as LangGraph Router
+    participant Pipeline as CoderPipeline
+    participant DB as PostgreSQL Ledger
+    participant WS as Cloud Workstation
 
-```bash
-git clone https://github.com/bhav66d/thekedar.git
-cd thekedar
-./scripts/bootstrap.sh --demo
-open http://localhost:8081
-./scripts/send-demo-message.sh
+    Channel->>Ingress: POST Webhook (e.g., "@Coder fix login bug")
+    Ingress->>Ingress: Verify Signature & Rate Limit
+    Ingress-->>Channel: 200 ACK (within 500ms)
+    Ingress->>Bus: Enqueue Message Job
+    Bus->>Worker: Dequeue Job
+    Worker->>DB: Create AgentRun (status=running)
+    Worker->>Graph: Dispatch Intent
+    Graph->>Pipeline: Route Coder Intent
+    Pipeline->>WS: ensure_ready & sync_repo
+    Pipeline->>Pipeline: Load Context, Assess Impact, Create Plan
+    Pipeline-->>Channel: Notify (awaiting impact/plan approvals)
+    Note over Channel, Pipeline: User approves plan or sends amendments
+    Pipeline->>WS: Execute IDE Adapter Task (remote or VS Code extension)
+    WS-->>Pipeline: Return CodingResult
+    Pipeline->>WS: Run Verification Tests
+    Pipeline->>DB: Update AgentRun (status=completed)
+    Pipeline-->>Channel: Notify PR/Branch summary
 ```
 
-Demo mode uses mock Jira/GitHub when tokens are not configured (local only). Staging/prod use fail-closed rules — see [docs/RELIABILITY.md](docs/RELIABILITY.md) and [docs/demo-mode.md](docs/demo-mode.md).
+---
 
-## Full local setup
+## Technical Features
 
-```bash
-uv sync --all-packages --dev
-uv run thekedar init --yes --mode local-demo   # creates .env + config/workspace.yaml
-docker compose up --build
-uv run thekedar doctor
-```
+### 1. The Freshness Contract & SHA Gate
+In staging and production environments, the **SHA Gate** blocks coding tasks if the contextual indexing does not match the active remote workstation HEAD. This prevents stale context hallucinations. Developers can command `"override"` to bypass the gate in special circumstances.
 
-| Service | URL |
-|---------|-----|
-| Dashboard | http://localhost:8081 |
-| Webhook ingress | http://localhost:8080 |
-| Health | http://localhost:8080/health |
+### 2. Bidirectional VS Code Extension Task Queue
+Our custom VS Code Extension (`extensions/vscode-thekedar`) enables real-time interactive coding tasks. The client-side editor automatically claims enqueued workspace operations, executes local development agents (Cursor/Claude Code) in your workspace context, calculates performance metrics, and pushes results back to the orchestrator.
 
-## Connect real integrations
-
-| Integration | Guide |
-|-------------|-------|
-| Slack | [docs/integrations/slack.md](docs/integrations/slack.md) |
-| WhatsApp | [docs/integrations/whatsapp.md](docs/integrations/whatsapp.md) |
-| Jira | [docs/integrations/jira.md](docs/integrations/jira.md) |
-| GitHub | [docs/integrations/github.md](docs/integrations/github.md) |
-| Multi-tenant workspaces | [docs/workspace-config.md](docs/workspace-config.md) |
-
-Expose webhooks to the internet:
-
-```bash
-./scripts/tunnel.sh   # ngrok or cloudflared on port 8080
-```
-
-## Agent commands
-
-Message these in Slack or WhatsApp (include the agent name or `@mention`):
-
-| Agent | Example | What it does |
-|-------|---------|--------------|
-| `@Architect` | `@Architect list open issues` | Jira query / create |
-| `@Architect` | `@Architect create issue: Auth hardening` | Create Jira task |
-| `@Coder` | `@Coder fix THE-42 login bug` | Boot workstation → branch → PR |
-| `@Status` | `@Status` | Snapshot of runs + workstation |
-
-Include a Jira key (e.g. `THE-42`) for `@Coder` tasks. Keywords `merge`, `deploy`, or `force push` trigger an approval gate.
-
-## CLI
-
-```bash
-uv run thekedar init          # interactive .env + workspace setup
-uv run thekedar bootstrap     # sync deps + docker compose + doctor
-uv run thekedar doctor        # health + credential checks
-uv run thekedar doctor --strict  # prod/staging deploy gate
-uv run thekedar mcp ping github
-uv run thekedar-orchestrator hibernate   # idle workstation cleanup
-```
-
-Makefile shortcuts: `make demo`, `make test`, `make doctor`.
-
-## Production (GCP)
-
-Self-hosted Docker works for single-team deployments. For GCP (Cloud Run, GKE, Cloud Workstations), see [docs/deployment.md](docs/deployment.md).
-
-## Configuration
-
-All settings via environment variables. See [.env.example](.env.example). Run `uv run thekedar init` to generate a starter `.env`.
-
-Key security settings:
-
-| Variable | Purpose |
-|----------|---------|
-| `THEKEDAR_JWT_SECRET` | Dashboard + approval API auth (required in staging/prod) |
-| `THEKEDAR_REQUIRE_WEBHOOK_SIGNATURE` | Reject unsigned Slack/WhatsApp/GitHub webhooks |
-| `THEKEDAR_DEMO_MODE` | Mock integrations + relaxed auth for local eval |
-
-## Development
-
-```bash
-uv run pytest tests -q
-uv run ruff check packages tests
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Security
-
-Report vulnerabilities per [SECURITY.md](SECURITY.md). Do not open public issues for security bugs.
-
-## License
-
-Apache License 2.0. See [LICENSE](LICENSE).
+### 3. Isolated Context Packs
+Context payload generation packages top symbols, manifestations, test maps, and security footprints into read-only XML blocks (`<ground_truth_context>`) to avoid prompt injection vectors.

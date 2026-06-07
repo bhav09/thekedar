@@ -64,9 +64,12 @@ class RepoIndexer:
                 text=True,
                 check=True,
             )
-            return [line for line in result.stdout.splitlines() if line.strip()]
+            # Filter out files inside .cursor/ or any hidden directories to avoid noise
+            all_files = [line for line in result.stdout.splitlines() if line.strip()]
+            return [f for f in all_files if not f.startswith(".cursor/")]
         except (subprocess.CalledProcessError, FileNotFoundError):
-            return [str(p.relative_to(repo_path)) for p in repo_path.rglob("*") if p.is_file()]
+            all_files = [str(p.relative_to(repo_path)) for p in repo_path.rglob("*") if p.is_file()]
+            return [f for f in all_files if not f.startswith(".cursor/")]
 
     def _read_text(self, repo_path: Path, rel: str, max_bytes: int = 32_000) -> str:
         path = repo_path / rel
@@ -103,15 +106,16 @@ class RepoIndexer:
         symbols: list[str] = []
         for rel in files:
             if rel.endswith(".py") and "test" not in rel:
-                for line in self._read_text(root, rel, 4_000).splitlines():
+                text = self._read_text(root, rel, 32_000)
+                for line in text.splitlines():
                     stripped = line.strip()
                     if stripped.startswith(("def ", "class ", "async def ")):
                         symbols.append(f"{rel}:{stripped[:80]}")
         chunks.append(
             (
                 "symbol_index",
-                self._hash_content(json.dumps(symbols[:200])),
-                {"symbols": symbols[:200]},
+                self._hash_content(json.dumps(symbols)),
+                {"symbols": symbols},
             )
         )
 

@@ -190,3 +190,29 @@ async def test_full_pipeline_to_publish_gate(
         assert "Completion report" in r3["reply"] or "Publish" in r3["reply"]
 
     get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_context_staleness_warning(orchestrator_services, session_factory, indexed_context, coder_message) -> None:
+    from unittest.mock import AsyncMock
+    orchestrator_services._coder._workstation.get_git_sha = AsyncMock(return_value="different-sha-12345")
+
+    run_id = str(uuid.uuid4())
+    session = session_factory()
+    session.add(
+        AgentRun(
+            id=run_id,
+            tenant_id="T001",
+            channel="slack",
+            user_id="U123",
+            workflow="coder",
+            status="running",
+            trigger_text=coder_message.text,
+        )
+    )
+    session.commit()
+    session.close()
+
+    result = await orchestrator_services.run_coder_pipeline(coder_message, run_id, None)
+    assert result["status"] == "awaiting_approval"
+    assert "Warning: Codebase context is stale!" in result["reply"]

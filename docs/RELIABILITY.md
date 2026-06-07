@@ -56,6 +56,14 @@ uv run thekedar doctor --strict
 2. Worker uses `run_steps` idempotency; resume from last completed step
 3. Redis checkpoint rebuilt from SQL on cache miss
 
+### Approval/Resume Failure Runbook
+
+If a human approval is submitted via the dashboard or Slack but the worker fails to resume the run:
+
+1. **Verify Signature:** Check the worker logs for "Rejected resume event: invalid signature". This indicates a signature mismatch, usually caused by mismatched `THEKEDAR_JWT_SECRET` values across services. Ensure all services use the exact same secret.
+2. **Check Redis Queue:** Inspect the resume queue length: `redis-cli LLEN thekedar:queue:resume`.
+3. **Manual Re-trigger:** If the resume event was rejected or lost, the operator can manually re-trigger the resume by publishing a signed resume payload using the helper script `scripts/sign-resume.py`.
+
 ### Quarterly DR drill
 
 ```bash

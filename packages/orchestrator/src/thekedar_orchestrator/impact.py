@@ -6,6 +6,7 @@ import re
 
 from thekedar_context.schemas import ContextQuery, GlobalContext, ImpactReport
 from thekedar_context.retriever import ContextRetriever
+from thekedar_context.context_pack import ContextPackBuilder
 from thekedar_orchestrator.llm.router import LLMRouter
 from thekedar_orchestrator.policy_gate import PolicyViolation, enforce_mcp_policy
 from thekedar_shared.settings import Settings
@@ -32,6 +33,14 @@ def _static_hits(context: GlobalContext, keywords: list[str]) -> list[str]:
             if any(k in mod.lower() for k in keywords):
                 hits.append(f"security:{mod}")
     return hits[:20]
+
+
+# ContextPackBuilder.build_context_pack is now imported from thekedar_context.context_pack
+
+
+def sanitize_user_text(text: str) -> str:
+    # Escape tag boundaries to prevent prompt injection
+    return text.replace("</user_query>", "").replace("<ground_truth_context>", "").replace("</ground_truth_context>", "")
 
 
 class ImpactAnalyzer:
@@ -62,9 +71,25 @@ class ImpactAnalyzer:
         session=None,
         run_id: str | None = None,
     ) -> ImpactReport:
+        import json
         report = self._assess_static(request_text, context, issue_key)
+        keywords = _keywords_from_text(request_text)
+        context_pack = ContextPackBuilder.build_context_pack(context, keywords)
+        
+        clean_text = sanitize_user_text(request_text)
+        prompt = (
+            f"Context repo: {context.repo}\n\n"
+            f"<ground_truth_context>\n"
+            f"{json.dumps(context_pack, indent=2)}\n"
+            f"</ground_truth_context>\n\n"
+            f"Summarize the technical impact of implementing the following request:\n"
+            f"<user_query>\n"
+            f"{clean_text}\n"
+            f"</user_query>"
+        )
+
         llm_result = await self._llm.complete(
-            f"Summarize impact for: {request_text}\nContext repo: {context.repo}",
+            prompt,
             schema_hint="impact",
             session=session,
             tenant_id=context.tenant_id,

@@ -97,6 +97,15 @@ class Settings(BaseSettings):
     approval_ttl_hours: int = Field(default=72, alias="THEKEDAR_APPROVAL_TTL_HOURS")
     max_coding_iterations: int = Field(default=25, alias="THEKEDAR_MAX_CODING_ITERATIONS")
 
+    # M5 — remote execution and GCP workstations configuration
+    remote_executor: str = Field(default="local", alias="THEKEDAR_REMOTE_EXECUTOR")
+    workstation_repo_root: str = Field(default="/home/user/repos", alias="THEKEDAR_WORKSTATION_REPO_ROOT")
+    gcp_workstation_cluster_id: str | None = Field(default=None, alias="GCP_WORKSTATION_CLUSTER_ID")
+    gcp_workstation_config_id: str | None = Field(default=None, alias="GCP_WORKSTATION_CONFIG_ID")
+    workstation_ssh_user: str = Field(default="user", alias="THEKEDAR_WORKSTATION_SSH_USER")
+    vscode_task_mode: str = Field(default="disabled", alias="THEKEDAR_VSCODE_TASK_MODE")
+    vscode_task_timeout_s: int = Field(default=1800, alias="THEKEDAR_VSCODE_TASK_TIMEOUT_S")
+
     # GitHub webhooks
     github_webhook_secret: SecretStr | None = Field(default=None, alias="GITHUB_WEBHOOK_SECRET")
 

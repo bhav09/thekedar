@@ -65,3 +65,40 @@ def test_approval_tenant_isolation(dashboard_client: TestClient) -> None:
 
     resp = dashboard_client.get("/api/v1/approvals/ap-2", headers=other_headers)
     assert resp.status_code == 404
+
+
+def test_resolve_pending_approval_requires_uuid(orchestrator_services, session_factory) -> None:
+    from thekedar_shared.schemas import Channel, MessageEvent
+    from thekedar_shared.db import PendingApproval
+
+    session = session_factory()
+    session.add(
+        PendingApproval(
+            id="ap-uuid-12345",
+            tenant_id="default",
+            approval_type="impact_review",
+            summary="Test approval",
+            status="pending",
+        )
+    )
+    session.commit()
+    session.close()
+
+    msg = MessageEvent(
+        channel=Channel.SLACK,
+        message_id="m1",
+        thread_id="C1",
+        user_id="U1",
+        tenant_id="T001",
+        text="approve",
+        idempotency_key="k1",
+    )
+
+    # Resolve without uuid -> must return None
+    res = orchestrator_services.resolve_pending_approval(msg, None)
+    assert res is None
+
+    # Resolve with correct uuid -> must return the approval
+    res_with_uuid = orchestrator_services.resolve_pending_approval(msg, "ap-uuid-12345")
+    assert res_with_uuid is not None
+    assert res_with_uuid.id == "ap-uuid-12345"

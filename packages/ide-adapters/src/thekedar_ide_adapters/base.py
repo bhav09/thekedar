@@ -8,13 +8,27 @@ import subprocess
 from pathlib import Path
 
 from thekedar_shared.settings import Settings
+from thekedar_shared.exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 
-def repo_path(settings: Settings) -> Path | None:
+def repo_path(
+    settings: Settings,
+    *,
+    tenant_id: str | None = None,
+    repo: str | None = None,
+) -> Path | None:
     if settings.local_repo_path:
         return Path(settings.local_repo_path).resolve()
+
+    if settings.environment in ("staging", "prod"):
+        if not tenant_id or not repo:
+            raise ConfigurationError("tenant_id and repo are required for cloud repo_path in staging/prod")
+        root = settings.workstation_repo_root or "/home/user/repos"
+        repo_slug = repo.split("/")[-1]
+        return Path(root) / tenant_id / repo_slug
+
     return Path.cwd().resolve()
 
 

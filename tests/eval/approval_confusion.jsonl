@@ -1,0 +1,27 @@
+[
+  {
+    "text": "approve 123",
+    "is_approval": true,
+    "is_rejection": false
+  },
+  {
+    "text": "reject 456",
+    "is_approval": false,
+    "is_rejection": true
+  },
+  {
+    "text": "should I approve this?",
+    "is_approval": false,
+    "is_rejection": false
+  },
+  {
+    "text": "approved with changes",
+    "is_approval": true,
+    "is_rejection": false
+  },
+  {
+    "text": "reject and cancel this whole thing",
+    "is_approval": false,
+    "is_rejection": true
+  }
+]

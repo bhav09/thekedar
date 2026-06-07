@@ -60,7 +60,20 @@ async def github_events(
     payload = json.loads(body)
     event_type = request.headers.get("X-GitHub-Event", "")
 
-    if event_type == "pull_request":
+    if event_type == "push":
+        # Mark context snapshot stale or trigger reindex
+        repo = payload.get("repository", {})
+        repo_name = repo.get("full_name", "")
+        if repo_name:
+            _mark_snapshot_stale(session, repo_name)
+            import asyncio
+            matching_tenant_ids = _get_matching_tenant_ids(session, repo_name)
+            if matching_tenant_ids:
+                asyncio.create_task(
+                    _trigger_reindex_async(request.app.state.session_factory, repo_name, matching_tenant_ids)
+                )
+
+    elif event_type == "pull_request":
         action = payload.get("action")
         pr = payload.get("pull_request") or {}
         if action in ("opened", "synchronize", "closed"):
@@ -81,8 +94,18 @@ def _update_pr_link(session: Session, repo: dict, pr: dict) -> None:
     pr_number = pr.get("number")
     if not repo_name or not pr_number:
         return
+    matching_tenant_ids = _get_matching_tenant_ids(session, repo_name)
+    if not matching_tenant_ids:
+        return
     branch = (pr.get("head") or {}).get("ref", "")
-    links = session.query(TicketCodeLink).filter_by(pr_number=int(pr_number)).all()
+    links = (
+        session.query(TicketCodeLink)
+        .filter(
+            TicketCodeLink.pr_number == int(pr_number),
+            TicketCodeLink.tenant_id.in_(matching_tenant_ids),
+        )
+        .all()
+    )
     for link in links:
         link.pr_url = pr.get("html_url") or link.pr_url
         link.branch_name = branch or link.branch_name
@@ -93,8 +116,12 @@ def _update_pr_link(session: Session, repo: dict, pr: dict) -> None:
 
 
 def _update_ci_status(session: Session, repo: dict, pr_ref: dict, conclusion: str) -> None:
+    repo_name = repo.get("full_name", "")
     pr_number = pr_ref.get("number")
-    if not pr_number:
+    if not repo_name or not pr_number:
+        return
+    matching_tenant_ids = _get_matching_tenant_ids(session, repo_name)
+    if not matching_tenant_ids:
         return
     if conclusion == "success":
         status = "success"
@@ -102,10 +129,89 @@ def _update_ci_status(session: Session, repo: dict, pr_ref: dict, conclusion: st
         status = "failure"
     else:
         status = "pending"
-    links = session.query(TicketCodeLink).filter_by(pr_number=int(pr_number)).all()
+    links = (
+        session.query(TicketCodeLink)
+        .filter(
+            TicketCodeLink.pr_number == int(pr_number),
+            TicketCodeLink.tenant_id.in_(matching_tenant_ids),
+        )
+        .all()
+    )
     for link in links:
         link.ci_status = status
     session.commit()
+
+
+def _get_matching_tenant_ids(session: Session, repo_name: str) -> list[str]:
+    from thekedar_shared.db import Workspace
+    workspaces = session.query(Workspace).all()
+    matching_tenant_ids = []
+    for ws in workspaces:
+        try:
+            repos = json.loads(ws.github_repos or "[]")
+        except Exception:
+            continue
+        for r in repos:
+            full_repo = f"{ws.github_org}/{r}" if ws.github_org else r
+            if full_repo.lower() == repo_name.lower():
+                matching_tenant_ids.append(ws.tenant_id)
+                break
+    return matching_tenant_ids
+
+
+def _mark_snapshot_stale(session: Session, repo_name: str) -> None:
+    from thekedar_shared.db import ContextSnapshot
+    matching_tenant_ids = _get_matching_tenant_ids(session, repo_name)
+    if not matching_tenant_ids:
+        return
+    snapshots = (
+        session.query(ContextSnapshot)
+        .filter(
+            ContextSnapshot.repo == repo_name,
+            ContextSnapshot.tenant_id.in_(matching_tenant_ids),
+        )
+        .all()
+    )
+    # Mark stale by setting indexed_at to epoch or subtracting 48 hours to trigger reindex
+    from datetime import datetime, UTC, timedelta
+    stale_time = datetime.now(UTC) - timedelta(hours=48)
+    for snap in snapshots:
+        snap.indexed_at = stale_time
+    session.commit()
+
+
+async def _trigger_reindex_async(session_factory, repo_name: str, tenant_ids: list[str]) -> None:
+    import asyncio
+    from thekedar_context.indexer import RepoIndexer
+    from thekedar_shared.workspace import WorkspaceService
+    from thekedar_shared.db import Workspace
+    from pathlib import Path
+
+    def _run():
+        session = session_factory()
+        try:
+            for tenant_id in tenant_ids:
+                workspace = session.query(Workspace).filter_by(tenant_id=tenant_id).first()
+                if workspace:
+                    workspace_service = WorkspaceService(lambda: session)
+                    primary = workspace_service.primary_repo(workspace)
+                    if primary == repo_name:
+                        from thekedar_orchestrator.integrations.workstation import select_remote_executor
+                        from thekedar_shared.settings import get_settings
+                        settings = get_settings()
+                        executor = select_remote_executor(settings)
+                        mount_path = executor.repo_mount_path(tenant_id, repo_name)
+                        p = Path(mount_path)
+                        if p.is_dir():
+                            logger.info("Background indexing repo %s for tenant %s at %s", repo_name, tenant_id, p)
+                            RepoIndexer().index(session, tenant_id, repo_name, p)
+        except Exception as err:
+            logger.error("Error in background reindex: %s", err)
+        finally:
+            session.close()
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _run)
 
 
 def attach_github_routes(app) -> None:

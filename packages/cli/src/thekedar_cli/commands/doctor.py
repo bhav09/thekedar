@@ -36,6 +36,7 @@ def doctor_command(
     bifrost_url = f"{settings.bifrost_url.rstrip('/')}/health"
     checks.append((*_optional("Bifrost", _check_http_bool(bifrost_url)), False))
     checks.append((*_check_ide_adapter(settings), False))
+    checks.append((*_check_gcp_workstations(settings), strict))
 
     if strict or settings.strict_integrations:
         for err in validate_production_settings(settings):
@@ -196,3 +197,20 @@ def _check_ide_adapter(settings: Settings) -> tuple[str, bool, str]:
             "CLI not found — install or set THEKEDAR_IDE_ADAPTER=mock",
         )
     return f"IDE adapter ({adapter})", True, "skipped (local IDE disabled)"
+
+
+def _check_gcp_workstations(settings: Settings) -> tuple[str, bool, str]:
+    if settings.remote_executor != "gcp":
+        return "GCP Workstations (remote executor)", True, "not configured (using non-gcp executor)"
+    if not settings.gcp_project_id:
+        return "GCP Workstations (project ID)", False, "GCP_PROJECT_ID required but missing"
+
+    try:
+        from google.cloud import workstations_v1
+        client = workstations_v1.WorkstationsClient()
+        location_path = f"projects/{settings.gcp_project_id}/locations/{settings.gcp_region or 'us-central1'}"
+        client.list_workstation_clusters(parent=location_path, page_size=1)
+        return "GCP Workstations reachability", True, f"client initialized + reached location: {settings.gcp_region}"
+    except Exception as e:
+        return "GCP Workstations reachability", False, f"Failed: {str(e)}"
+
