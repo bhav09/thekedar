@@ -86,6 +86,7 @@ async def test_max_coding_iterations_enforcement(session_factory, test_settings:
     state = {
         "run_id": str(uuid.uuid4()),
         "tenant_id": "tenant-max-it",
+        "repo": "r",
         "global_context": GlobalContext(snapshot_id="s", tenant_id="tenant-max-it", repo="r", sha="abc", branch="main").model_dump(),
         "execution_plan": ExecutionPlan(summary="Fix it", branch_name="fix", test_strategy="pytest").model_dump(),
         "coding_iterations": 1,

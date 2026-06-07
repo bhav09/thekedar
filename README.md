@@ -88,39 +88,6 @@ flowchart TB
     Outbox --> Slack
     Outbox --> WhatsApp
 ```
-
-### End-to-End Execution Flow
-
-```mermaid
-sequenceDiagram
-    participant Channel as Slack / WhatsApp
-    participant Ingress as webhook-ingress
-    participant Bus as Redis / PubSub
-    participant Worker as orchestrator-worker
-    participant Graph as LangGraph Router
-    participant Pipeline as CoderPipeline
-    participant DB as PostgreSQL Ledger
-    participant WS as Cloud Workstation
-
-    Channel->>Ingress: POST Webhook (e.g., "@Coder fix login bug")
-    Ingress->>Ingress: Verify Signature & Rate Limit
-    Ingress-->>Channel: 200 ACK (within 500ms)
-    Ingress->>Bus: Enqueue Message Job
-    Bus->>Worker: Dequeue Job
-    Worker->>DB: Create AgentRun (status=running)
-    Worker->>Graph: Dispatch Intent
-    Graph->>Pipeline: Route Coder Intent
-    Pipeline->>WS: ensure_ready & sync_repo
-    Pipeline->>Pipeline: Load Context, Assess Impact, Create Plan
-    Pipeline-->>Channel: Notify (awaiting impact/plan approvals)
-    Note over Channel, Pipeline: User approves plan or sends amendments
-    Pipeline->>WS: Execute IDE Adapter Task (remote or VS Code extension)
-    WS-->>Pipeline: Return CodingResult
-    Pipeline->>WS: Run Verification Tests
-    Pipeline->>DB: Update AgentRun (status=completed)
-    Pipeline-->>Channel: Notify PR/Branch summary
-```
-
 ---
 
 ## Technical Features
