@@ -70,6 +70,14 @@ async def slack_interactive(
     if item is None:
         return Response(content="Approval not found", media_type="text/plain")
 
+    # Bind Slack interactive approvals to workspace + user
+    # Ensure Slack team_id matches workspace external ID or similar mapping if configured
+    team_id = (payload.get("team") or {}).get("id", "")
+    from thekedar_shared.db import Workspace
+    workspace = session.query(Workspace).filter_by(tenant_id=item.tenant_id).first()
+    if workspace and workspace.slack_team_id and team_id and workspace.slack_team_id != team_id:
+        return Response(content="Workspace mismatch for Slack approval", media_type="text/plain")
+
     if action_id == "approve_action":
         item.status = "approved"
         if item.run_id:

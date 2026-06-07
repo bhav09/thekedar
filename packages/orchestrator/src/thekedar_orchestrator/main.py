@@ -20,6 +20,10 @@ logging.basicConfig(level=logging.INFO)
 
 async def run_worker_async() -> None:
     settings = get_settings()
+    # Orchestrator worker calls validate_settings on startup
+    from thekedar_shared.prod_validation import assert_production_settings
+    assert_production_settings(settings)
+
     configure_observability(settings, "orchestrator-worker")
     worker = OrchestratorWorker(settings)
     worker.seed()

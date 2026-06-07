@@ -469,6 +469,23 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-workstations"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpc-google-iam-v1" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/33/fc/390a34640062be7af56a86744d9299629934fc14eb0dc48d9f4449cb78d0/google_cloud_workstations-0.8.0.tar.gz", hash = "sha256:c2e14594ec42c932b49f7f4b0775c6c2fa10ec50928d40c96b79fab8496f4844", size = 238542, upload-time = "2026-03-26T22:17:26.83Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/86/4a/ef87165db4274a4a49f80fac3c62b977faf74c61ee8841307e6063298a19/google_cloud_workstations-0.8.0-py3-none-any.whl", hash = "sha256:7ce8bfe669c7c87501328cc4859d56f7502e8a667f98d8578087c16abe977e8a", size = 174670, upload-time = "2026-03-26T22:14:03.861Z" },
+]
+
+[[package]]
 name = "googleapis-common-protos"
 version = "1.75.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1856,6 +1873,7 @@ name = "thekedar-execution"
 version = "0.1.0"
 source = { editable = "packages/execution" }
 dependencies = [
+    { name = "google-cloud-workstations" },
     { name = "thekedar-context" },
     { name = "thekedar-ide-adapters" },
     { name = "thekedar-shared" },
@@ -1863,6 +1881,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "google-cloud-workstations", specifier = ">=0.5.0" },
     { name = "thekedar-context", editable = "packages/context" },
     { name = "thekedar-ide-adapters", editable = "packages/ide-adapters" },
     { name = "thekedar-shared", editable = "packages/shared" },
@@ -1920,6 +1939,7 @@ name = "thekedar-orchestrator"
 version = "0.1.0"
 source = { editable = "packages/orchestrator" }
 dependencies = [
+    { name = "google-cloud-workstations" },
     { name = "httpx" },
     { name = "langgraph" },
     { name = "redis" },
@@ -1934,6 +1954,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "google-cloud-workstations", specifier = ">=0.5.0" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "langgraph", specifier = ">=0.3" },
     { name = "redis", specifier = ">=5.2" },

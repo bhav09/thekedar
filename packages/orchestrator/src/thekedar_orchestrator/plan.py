@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from thekedar_context.schemas import ExecutionPlan, GlobalContext, ImpactReport
+from thekedar_context.schemas import ExecutionPlan, GlobalContext, ImpactReport, FileEvidence
 from thekedar_orchestrator.ticket_utils import branch_name, extract_issue_key, slug_from_text
 from thekedar_shared.exceptions import IntegrationError
 
@@ -24,6 +24,30 @@ def _guess_files(context: GlobalContext, impact: ImpactReport) -> list[str]:
             if path.endswith(".py"):
                 files.append(path)
     return list(dict.fromkeys(files))[:12]
+
+
+def _generate_evidence(context: GlobalContext, impact: ImpactReport, files: list[str]) -> list[FileEvidence]:
+    evidence_list: list[FileEvidence] = []
+    for f in files:
+        chunk_ids: list[str] = []
+        for doc in context.doc_chunks:
+            if doc.get("path") == f:
+                if "id" in doc:
+                    chunk_ids.append(str(doc["id"]))
+                elif "chunk_id" in doc:
+                    chunk_ids.append(str(doc["chunk_id"]))
+                else:
+                    chunk_ids.append(f"doc-chunk-{f.replace('/', '_')}")
+        
+        for ev in impact.evidence:
+            if f in ev:
+                chunk_ids.append(f"impact-evidence-{ev.replace(':', '_').replace('/', '_')}")
+        
+        if not chunk_ids:
+            chunk_ids.append(f"chunk-ref-{f.replace('/', '_')}")
+            
+        evidence_list.append(FileEvidence(filepath=f, chunk_ids=list(set(chunk_ids))))
+    return evidence_list
 
 
 class PlanGenerator:
@@ -58,6 +82,8 @@ class PlanGenerator:
         if impact.security_risks:
             summary += " (includes security-sensitive changes)"
 
+        evidence = _generate_evidence(context, impact, files)
+
         return ExecutionPlan(
             summary=summary,
             files_to_touch=files,
@@ -66,6 +92,7 @@ class PlanGenerator:
             rollback_strategy=f"Delete branch `{branch}` and abandon PR",
             estimated_minutes=20 if len(files) > 5 else 10,
             estimated_cost_usd=0.35 if len(files) > 5 else 0.15,
+            evidence=evidence,
         )
 
     def is_amendment(self, text: str) -> bool:
@@ -85,9 +112,15 @@ class PlanGenerator:
                 "plan",
                 "Amendment did not identify any files — specify paths explicitly",
             )
+        current_ev = {ev.filepath: ev for ev in plan.evidence}
+        for f in extra_files:
+            if f not in current_ev:
+                current_ev[f] = FileEvidence(filepath=f, chunk_ids=[f"amended-ref-{f.replace('/', '_')}"])
+        
         return plan.model_copy(
             update={
                 "summary": f"{plan.summary} — amended: {amendment[:120]}",
                 "files_to_touch": merged,
+                "evidence": [current_ev[f] for f in merged if f in current_ev],
             }
         )

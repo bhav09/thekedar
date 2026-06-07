@@ -181,31 +181,21 @@ class OrchestratorServices:
     def resolve_pending_approval(
         self, message: MessageEvent, approval_id: str | None
     ) -> PendingApproval | None:
+        if not approval_id:
+            return None
         workspace = self._workspace.resolve(message)
         if workspace is None:
             return None
         session = self._session_factory()
         try:
-            if approval_id:
-                item = session.get(PendingApproval, approval_id)
-                if (
-                    item
-                    and item.tenant_id == workspace.tenant_id
-                    and item.status == "pending"
-                ):
-                    return item
-                return None
-            return (
-                session.query(PendingApproval)
-                .filter_by(tenant_id=workspace.tenant_id, status="pending")
-                .filter(
-                    PendingApproval.approval_type.in_(
-                        ("impact_review", "plan_review", "publish_review")
-                    )
-                )
-                .order_by(PendingApproval.created_at.desc())
-                .first()
-            )
+            item = session.get(PendingApproval, approval_id)
+            if (
+                item
+                and item.tenant_id == workspace.tenant_id
+                and item.status == "pending"
+            ):
+                return item
+            return None
         finally:
             session.close()
 

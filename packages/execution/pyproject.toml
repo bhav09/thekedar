@@ -7,6 +7,7 @@ dependencies = [
     "thekedar-shared",
     "thekedar-context",
     "thekedar-ide-adapters",
+    "google-cloud-workstations>=0.5.0",
 ]
 
 [tool.uv.sources]

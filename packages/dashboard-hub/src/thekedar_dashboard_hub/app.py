@@ -11,7 +11,7 @@ from thekedar_shared.middleware import CorrelationIdMiddleware
 from thekedar_shared.settings import get_settings
 from thekedar_shared.settings_validation import validate_settings
 
-from thekedar_dashboard_hub.routes import approvals, auth, widgets, ws
+from thekedar_dashboard_hub.routes import approvals, auth, widgets, ws, ide_tasks
 
 
 @asynccontextmanager
@@ -28,6 +28,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(widgets.router, prefix="/api/v1")
     app.include_router(approvals.router, prefix="/api/v1")
+    app.include_router(ide_tasks.router, prefix="/api/v1")
     app.include_router(ws.router)
 
     static_dir = Path(__file__).parent / "static"

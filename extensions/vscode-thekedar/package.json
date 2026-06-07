@@ -1,0 +1,67 @@
+{
+  "name": "vscode-thekedar",
+  "displayName": "Thekedar",
+  "description": "VS Code integration for Thekedar Cloud Development Environments and AI IDE harness",
+  "version": "0.1.0",
+  "publisher": "thekedar",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:thekedar-sidebar"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "thekedar-sidebar-view",
+          "title": "Thekedar",
+          "icon": "$(gear)"
+        }
+      ]
+    },
+    "views": {
+      "thekedar-sidebar-view": [
+        {
+          "type": "webview",
+          "id": "thekedar-sidebar",
+          "name": "Thekedar Actions"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Thekedar",
+      "properties": {
+        "thekedar.dashboardUrl": {
+          "type": "string",
+          "default": "http://localhost:8081",
+          "description": "Thekedar Dashboard Hub URL"
+        },
+        "thekedar.token": {
+          "type": "string",
+          "default": "",
+          "description": "JWT Access Token for authentication"
+        },
+        "thekedar.taskRunnerEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable bidirectional task queue polling for background agent run execution"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.11.18",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}

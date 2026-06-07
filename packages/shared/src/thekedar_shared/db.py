@@ -126,6 +126,11 @@ class WorkstationHealth(Base):
     last_activity_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    host: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    instance_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    repo_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    boot_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class TicketCodeLink(Base):
@@ -257,6 +262,21 @@ class DlqMessage(Base):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     replayed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class IdeTask(Base):
+    __tablename__ = "ide_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")  # pending, claimed, completed, failed
+    payload_json: Mapped[str] = mapped_column(Text)
+    claimed_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 def init_db(database_url: str) -> sessionmaker:

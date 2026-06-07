@@ -39,3 +39,23 @@ async def test_resume_queue(fake_redis) -> None:
     payload = await store.consume_resume(timeout=2)
     assert payload is not None
     assert payload["run_id"] == "r1"
+
+
+@pytest.mark.asyncio
+async def test_resume_event_requires_hmac(fake_redis) -> None:
+    import json
+    store = RunCheckpointStore(fake_redis)
+
+    # 1. Unsigned/forged raw payload
+    await fake_redis.lpush("thekedar:queue:resume", json.dumps({"run_id": "r1", "approval_id": "a1", "decision": "approved"}))
+    payload = await store.consume_resume(timeout=2)
+    assert payload is None
+
+    # 2. Signed but invalid signature
+    bad_signed = {
+        "payload": {"run_id": "r1", "approval_id": "a1", "decision": "approved"},
+        "signature": "invalid-signature-here",
+    }
+    await fake_redis.lpush("thekedar:queue:resume", json.dumps(bad_signed))
+    payload = await store.consume_resume(timeout=2)
+    assert payload is None

@@ -9,7 +9,7 @@ from thekedar_ide_adapters import CodingResult
 from thekedar_shared.db import Workspace
 from thekedar_shared.settings import Settings
 
-from thekedar_execution.cloud import CloudWorkstationExecutor
+from thekedar_execution.cloud import CloudWorkstationExecutor, WorkstationOps
 from thekedar_execution.local import LocalIDEExecutor
 
 

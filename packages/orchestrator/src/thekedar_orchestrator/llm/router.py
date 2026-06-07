@@ -62,9 +62,18 @@ class LLMRouter:
                     await self._registry.record_success(f"llm:{provider}")
                 if session is not None:
                     log_cost(session, tenant_id, "llm", 0.05, run_id)
+                    # Check cost ceiling hook - abort if cumulative cost exceeds workspace budget
+                    from thekedar_shared.db import CostRecord, Workspace
+                    from sqlalchemy import func
+                    total_cost = session.query(func.sum(CostRecord.amount_usd)).filter_by(tenant_id=tenant_id).scalar() or 0.0
+                    workspace = session.query(Workspace).filter_by(tenant_id=tenant_id).first()
+                    if workspace and total_cost > workspace.budget_monthly_usd:
+                        raise ValueError(f"Aborted: total tenant cost {total_cost:.2f} USD has exceeded monthly budget of {workspace.budget_monthly_usd:.2f} USD")
                 return response
             except CircuitOpenError:
                 logger.warning("LLM circuit open for %s", provider)
+            except ValueError:
+                raise
             except Exception:
                 logger.exception("LLM provider %s failed", provider)
                 if self._registry:

@@ -39,7 +39,7 @@ class McpPolicyEngine:
         if server_cfg is None:
             return PolicyDecision(False, f"Unknown MCP server '{server}' — not in registry")
 
-        if server_cfg.allowed_tools and tool not in server_cfg.allowed_tools:
+        if tool not in server_cfg.allowed_tools:
             return PolicyDecision(
                 False,
                 f"Tool '{tool}' not in allowlist for server '{server}'",

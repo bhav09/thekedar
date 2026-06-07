@@ -77,19 +77,27 @@ class ContextRetriever:
         hits: list[dict] = []
         keywords = [k.lower() for k in query.keywords]
 
-        for doc in ctx.doc_chunks:
-            text = f"{doc.get('path', '')} {doc.get('excerpt', '')}".lower()
-            if not keywords or any(k in text for k in keywords):
-                hits.append({"type": "doc", **doc})
+        # Filter by chunk_types if provided
+        check_doc = not query.chunk_types or "doc" in query.chunk_types
+        check_symbol = not query.chunk_types or "symbol" in query.chunk_types
+        check_security = not query.chunk_types or "security" in query.chunk_types
 
-        for sym in ctx.symbol_index:
-            if not keywords or any(k in sym.lower() for k in keywords):
-                hits.append({"type": "symbol", "ref": sym})
+        if check_doc:
+            for doc in ctx.doc_chunks:
+                text = f"{doc.get('path', '')} {doc.get('excerpt', '')}".lower()
+                if not keywords or any(k in text for k in keywords):
+                    hits.append({"type": "doc", **doc})
 
-        auth_modules = ctx.security_profile.get("auth_modules", [])
-        if isinstance(auth_modules, list):
-            for mod in auth_modules:
-                if not keywords or any(k in mod.lower() for k in keywords):
-                    hits.append({"type": "security", "ref": mod})
+        if check_symbol:
+            for sym in ctx.symbol_index:
+                if not keywords or any(k in sym.lower() for k in keywords):
+                    hits.append({"type": "symbol", "ref": sym})
+
+        if check_security:
+            auth_modules = ctx.security_profile.get("auth_modules", [])
+            if isinstance(auth_modules, list):
+                for mod in auth_modules:
+                    if not keywords or any(k in mod.lower() for k in keywords):
+                        hits.append({"type": "security", "ref": mod})
 
         return hits[:50]

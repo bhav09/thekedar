@@ -74,3 +74,20 @@ def test_cli_registry_github_image() -> None:
     github = next(s for s in config.servers if s.name == "github")
     assert "github-mcp-server" in github.image
     assert "context" in github.toolsets
+
+
+def test_empty_allowed_tools_denies_all_in_prod() -> None:
+    config = PolicyConfig(
+        servers=[
+            McpServerConfig(
+                name="github",
+                image="ghcr.io/github/github-mcp-server:v1.1.2",
+                toolsets=["repos"],
+                allowed_tools=[],
+            )
+        ]
+    )
+    engine = McpPolicyEngine(config)
+    decision = engine.evaluate_tool("github", "list_repositories", {})
+    assert not decision.allowed
+    assert "not in allowlist" in decision.reason

@@ -14,6 +14,7 @@ dependencies = [
     "langgraph>=0.3",
     "httpx>=0.28",
     "redis>=5.2",
+    "google-cloud-workstations>=0.5.0",
 ]
 
 [tool.uv.sources]

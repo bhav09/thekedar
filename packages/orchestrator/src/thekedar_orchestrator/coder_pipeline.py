@@ -162,6 +162,9 @@ class CoderPipeline:
                 "plan_amendment_count": 0,
             }
 
+            if user_message and "override" in user_message.lower():
+                state["override_stale_context"] = True
+
             if approval.payload_json:
                 payload = json.loads(approval.payload_json)
                 if approval.stage == STAGE_IMPACT:
@@ -171,6 +174,24 @@ class CoderPipeline:
                     state["impact_report"] = self._load_artifact(session, run_id, "impact")
                     state["execution_plan"] = payload
                     state["resume_from"] = "after_plan"
+                    
+                    if self._settings.environment in ("staging", "prod"):
+                        snapshot = self._retriever.latest_snapshot(session, workspace.tenant_id, repo)
+                        workstation_sha = await self._workstation.get_git_sha(workspace.tenant_id, repo)
+                        if (
+                            snapshot
+                            and workstation_sha
+                            and snapshot.sha != workstation_sha
+                            and not state.get("override_stale_context")
+                        ):
+                            return {
+                                "reply": self._with_dashboard(
+                                    f"Aborted: Cannot resume. Codebase context is stale! Snapshot SHA ({snapshot.sha[:7]}) "
+                                    f"does not match Workstation HEAD ({workstation_sha[:7]}). "
+                                    f"To bypass, reply with 'override'."
+                                ),
+                                "status": "failed",
+                            }
                 elif approval.stage == STAGE_PUBLISH:
                     state["impact_report"] = self._load_artifact(session, run_id, "impact")
                     state["execution_plan"] = self._load_artifact(session, run_id, "plan")
@@ -248,6 +269,15 @@ class CoderPipeline:
                     "current_node": "load_context",
                 }
 
+            # Freshness contract: Compare snapshot.sha vs workstation HEAD
+            workstation_sha = await self._workstation.get_git_sha(tenant_id, repo)
+            staleness_warning = None
+            if snapshot and workstation_sha and snapshot.sha != workstation_sha:
+                staleness_warning = (
+                    f"Warning: Codebase context is stale! Snapshot SHA ({snapshot.sha[:7]}) "
+                    f"does not match Workstation HEAD ({workstation_sha[:7]})."
+                )
+
             run = session.get(AgentRun, run_id)
             if run:
                 run.context_snapshot_id = ctx.snapshot_id
@@ -259,6 +289,7 @@ class CoderPipeline:
                 "context_snapshot_id": ctx.snapshot_id,
                 "global_context": ctx.model_dump(),
                 "current_node": "assess_impact",
+                "staleness_warning": staleness_warning,
             }
         finally:
             session.close()
@@ -294,8 +325,11 @@ class CoderPipeline:
         finally:
             session.close()
 
+        summary_text = report.to_chat_summary(self._settings.dashboard_url, state["run_id"])
+        if state.get("staleness_warning"):
+            summary_text = f"⚠️ {state['staleness_warning']}\n\n" + summary_text
         reply = self._with_dashboard(
-            report.to_chat_summary(self._settings.dashboard_url, state["run_id"])
+            summary_text
             + f"\n\nReply `approve {approval_id}` or use dashboard buttons."
         )
         return {
@@ -358,7 +392,10 @@ class CoderPipeline:
         finally:
             session.close()
 
-        reply = self._with_dashboard(plan.to_chat_summary(self._settings.dashboard_url, state["run_id"]))
+        summary_text = plan.to_chat_summary(self._settings.dashboard_url, state["run_id"])
+        if state.get("staleness_warning"):
+            summary_text = f"⚠️ {state['staleness_warning']}\n\n" + summary_text
+        reply = self._with_dashboard(summary_text)
         return {
             **state,
             "execution_plan": plan.model_dump(),
@@ -373,9 +410,49 @@ class CoderPipeline:
         }
 
     async def _node_execute_coding(self, state: dict, workspace: Workspace) -> dict:
+        iterations = state.get("coding_iterations", 0) + 1
+        state["coding_iterations"] = iterations
+        if iterations > self._settings.max_coding_iterations:
+            return {
+                **state,
+                "reply": self._with_dashboard(f"Aborted: exceeded maximum coding iterations ({self._settings.max_coding_iterations})"),
+                "status": "failed",
+                "workflow": "coder",
+                "current_node": "execute_coding",
+            }
+
         plan = ExecutionPlan.model_validate(state["execution_plan"])
         ctx = GlobalContext.model_validate(state["global_context"])
         branch = plan.branch_name
+
+        # Check environment and SHA mismatch (SHA gate)
+        session = self._session_factory()
+        try:
+            repo = state["repo"]
+            tenant_id = state["tenant_id"]
+            snapshot = self._retriever.latest_snapshot(session, tenant_id, repo)
+            workstation_sha = await self._workstation.get_git_sha(tenant_id, repo)
+            
+            if (
+                self._settings.environment in ("staging", "prod")
+                and snapshot
+                and workstation_sha
+                and snapshot.sha != workstation_sha
+                and not state.get("override_stale_context")
+            ):
+                return {
+                    **state,
+                    "reply": self._with_dashboard(
+                        f"Aborted: Codebase context is stale! Snapshot SHA ({snapshot.sha[:7]}) "
+                        f"does not match Workstation HEAD ({workstation_sha[:7]}). "
+                        f"Please re-index your context or reply with 'override' to bypass."
+                    ),
+                    "status": "failed",
+                    "workflow": "coder",
+                    "current_node": "execute_coding",
+                }
+        finally:
+            session.close()
 
         session = self._session_factory()
         try:
@@ -525,12 +602,36 @@ class CoderPipeline:
         }
 
     async def _node_publish(self, state: dict, workspace: Workspace) -> dict:
+        from thekedar_orchestrator.policy_gate import enforce_mcp_policy, PolicyViolation
+
         plan = ExecutionPlan.model_validate(state["execution_plan"])
         report = CompletionReport.model_validate(state["completion_report"])
         intent = (state.get("publish_intent") or state.get("user_message") or "create pr").lower()
         repo = state["repo"]
         branch = plan.branch_name
         issue_key = state.get("issue_key") or "TASK"
+
+        try:
+            enforce_mcp_policy(self._settings, "github", "create_branch", {"repo": repo, "branch": branch})
+            if "push" not in intent or "pr" in intent:
+                enforce_mcp_policy(self._settings, "github", "create_pull_request", {"repo": repo, "branch": branch})
+        except PolicyViolation as exc:
+            session = self._session_factory()
+            try:
+                run = session.get(AgentRun, state["run_id"])
+                if run:
+                    run.status = "failed"
+                    run.current_node = "publish_failed"
+                session.commit()
+            finally:
+                session.close()
+            return {
+                **state,
+                "reply": f"Publish blocked by policy constraint: {exc}",
+                "status": "failed",
+                "workflow": "coder",
+                "current_node": "publish_failed",
+            }
 
         await self._github.create_branch(repo, branch)
 

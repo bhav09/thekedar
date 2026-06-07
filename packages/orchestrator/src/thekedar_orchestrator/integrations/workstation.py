@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from thekedar_shared.db import TestRunRecord, WorkstationHealth
 from thekedar_shared.settings import Settings
+from thekedar_execution.remote import select_remote_executor
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,27 @@ class WorkstationManager:
     def __init__(self, settings: Settings, session_factory) -> None:
         self._settings = settings
         self._session_factory = session_factory
+
+    async def get_git_sha(self, tenant_id: str = "default", repo: str | None = None) -> str | None:
+        executor = select_remote_executor(self._settings)
+        repo_to_use = repo
+        if not repo_to_use:
+            session = self._session_factory()
+            try:
+                from thekedar_shared.db import Workspace
+                workspace = session.query(Workspace).filter_by(tenant_id=tenant_id).first()
+                if workspace:
+                    from thekedar_shared.workspace import WorkspaceService
+                    workspace_service = WorkspaceService(self._session_factory)
+                    repo_to_use = workspace_service.primary_repo(workspace)
+            finally:
+                session.close()
+
+        if not repo_to_use:
+            repo_to_use = "default-repo"
+
+        path = executor.repo_mount_path(tenant_id, repo_to_use)
+        return await executor.get_git_sha(tenant_id, path)
 
     async def ensure_ready(self, tenant_id: str, config_id: str | None) -> WorkstationHealth:
         session = self._session_factory()
@@ -33,15 +55,50 @@ class WorkstationManager:
 
             if ws.state in ("sleeping", "stopped"):
                 ws.state = "booting"
+                ws.boot_started_at = datetime.now(UTC)
                 session.commit()
-                if self._settings.gcp_project_id and self._settings.environment in (
-                    "staging",
-                    "prod",
-                ):
-                    await self._gcp_start(config_id or ws.name)
-                else:
-                    logger.info("Workstation boot simulated for tenant=%s", tenant_id)
-                ws.state = "active"
+                
+                try:
+                    executor = select_remote_executor(self._settings)
+                    endpoint = await executor.ensure_ready(tenant_id, config_id)
+                    ws.host = endpoint.host
+                    ws.instance_id = endpoint.instance_id
+                    ws.state = "active"
+                    ws.last_error = None
+                    
+                    try:
+                        from thekedar_shared.events import DomainEvent, EventType
+                        event = DomainEvent(
+                            type=EventType.WORKSTATION_STATE_CHANGED,
+                            tenant_id=tenant_id,
+                            payload={"state": "active", "host": ws.host, "instance_id": ws.instance_id}
+                        )
+                        logger.info("Emitting event: %s", event.model_dump_json())
+                    except Exception as ev_err:
+                        logger.warning("Failed to emit event: %s", ev_err)
+
+                    if ws.boot_started_at:
+                        boot_started = ws.boot_started_at
+                        if boot_started.tzinfo is None:
+                            boot_started = boot_started.replace(tzinfo=UTC)
+                        latency = (datetime.now(UTC) - boot_started).total_seconds()
+                        logger.info("[METRIC] workstation_boot_latency_s: %f", latency)
+                except Exception as e:
+                    ws.state = "stopped"
+                    ws.last_error = str(e)
+                    session.commit()
+                    try:
+                        from thekedar_shared.events import DomainEvent, EventType
+                        event = DomainEvent(
+                            type=EventType.WORKSTATION_STATE_CHANGED,
+                            tenant_id=tenant_id,
+                            payload={"state": "stopped", "error": str(e)}
+                        )
+                        logger.info("Emitting event: %s", event.model_dump_json())
+                    except Exception as ev_err:
+                        logger.warning("Failed to emit event: %s", ev_err)
+                    raise
+
             ws.last_activity_at = datetime.now(UTC)
             session.commit()
             session.refresh(ws)
@@ -57,7 +114,41 @@ class WorkstationManager:
                 ws.commits_behind_main = 0
                 ws.last_activity_at = datetime.now(UTC)
 
-            status, summary = await self._run_tests()
+            # 1. Fetch workspace config to find the primary repo
+            from thekedar_shared.workspace import WorkspaceService
+            from thekedar_shared.db import Workspace
+            workspace_service = WorkspaceService(self._session_factory)
+            workspace = session.query(Workspace).filter_by(tenant_id=tenant_id).first()
+            
+            repo = "default-repo"
+            if workspace:
+                repo = workspace_service.primary_repo(workspace)
+
+            # 2. Get remote executor and run sync + tests
+            executor = select_remote_executor(self._settings)
+            mount_path = executor.repo_mount_path(tenant_id, repo)
+            if ws:
+                ws.repo_path = mount_path
+                session.commit()
+
+            logger.info("Syncing repository: %s for tenant: %s", repo, tenant_id)
+            sync_res = await executor.sync_repo(tenant_id, repo, "main")
+            if ws and sync_res.success:
+                ws.commits_behind_main = sync_res.commits_behind
+                logger.info("[METRIC] context_staleness_total: %d", ws.commits_behind_main)
+            elif not sync_res.success:
+                logger.info("[METRIC] workstation_sync_failures: 1")
+
+            status, summary = await executor.run_tests(tenant_id, mount_path)
+
+            # Trigger workstation-side indexing job post sync_repo
+            from thekedar_context.indexer import RepoIndexer
+            if sync_res.success:
+                from pathlib import Path
+                p = Path(mount_path)
+                if p.is_dir():
+                    RepoIndexer().index(session, tenant_id, repo, p)
+
             record = TestRunRecord(
                 tenant_id=tenant_id,
                 run_id=run_id,
@@ -70,18 +161,6 @@ class WorkstationManager:
             return record
         finally:
             session.close()
-
-    async def _run_tests(self) -> tuple[str, str]:
-        if self._settings.local_repo_path:
-            from thekedar_execution.local import LocalIDEExecutor
-
-            executor = LocalIDEExecutor(self._settings)
-            return await executor.run_tests("local", None)
-
-        if self._settings.gcp_project_id and self._settings.environment in ("staging", "prod"):
-            return "passed", "Cloud Workstation: git pull --rebase origin main && pytest"
-
-        return "passed", "git pull --rebase origin main && pytest (simulated)"
 
     def hibernate_idle(self) -> int:
         session = self._session_factory()
@@ -97,6 +176,16 @@ class WorkstationManager:
             for ws in rows:
                 ws.state = "sleeping"
                 count += 1
+                try:
+                    from thekedar_shared.events import DomainEvent, EventType
+                    event = DomainEvent(
+                        type=EventType.WORKSTATION_STATE_CHANGED,
+                        tenant_id=ws.tenant_id,
+                        payload={"state": "sleeping"}
+                    )
+                    logger.info("Emitting event: %s", event.model_dump_json())
+                except Exception as ev_err:
+                    logger.warning("Failed to emit event: %s", ev_err)
             if count:
                 session.commit()
             return count
@@ -104,6 +193,7 @@ class WorkstationManager:
             session.close()
 
     async def _gcp_start(self, config_id: str) -> None:
+        # Keep as informational log - real GCP boot is delegated via GcpWorkstationRemoteExecutor
         logger.info(
             "GCP Workstation start requested: project=%s config=%s",
             self._settings.gcp_project_id,
