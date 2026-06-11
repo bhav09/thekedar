@@ -6,7 +6,7 @@ import logging
 from typing import Protocol
 
 from thekedar_context.schemas import ExecutionPlan, GlobalContext
-from thekedar_ide_adapters import CodingResult, select_adapter
+from thekedar_ide_adapters import CodingResult
 from thekedar_shared.settings import Settings
 from thekedar_execution.remote import select_remote_executor
 
@@ -49,9 +49,12 @@ class CloudWorkstationExecutor:
         if not sync_res.success:
             return CodingResult(success=False, summary=f"Sync failed: {sync_res.summary}")
 
-        # Execute coding via selected adapter
-        adapter = select_adapter(self._settings)
-        return await adapter.run_task(plan, context, branch)
+        # Execute coding via remote adapter executor
+        from thekedar_execution.remote_adapter_executor import RemoteAdapterExecutor
+        adapter_executor = RemoteAdapterExecutor(self._settings, self._remote)
+        return await adapter_executor.run_coding(
+            plan, context, branch, self._settings.ide_adapter
+        )
 
     async def run_tests(self, tenant_id: str, run_id: str | None) -> tuple[str, str]:
         record = await self._workstation.sync_repo_and_test(tenant_id, run_id)

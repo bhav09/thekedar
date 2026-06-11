@@ -117,6 +117,7 @@ async def test_cost_ceiling_hook_abort(session_factory, test_settings: Settings,
     test_settings.llm_provider = "openai"
     test_settings.llm_primary = "openai"
     test_settings.environment = "staging"
+    test_settings.max_cost_per_run_usd = 100.0
 
     session = session_factory()
     # Monthly budget is 10.00 USD

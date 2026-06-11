@@ -97,6 +97,22 @@ class Settings(BaseSettings):
     approval_ttl_hours: int = Field(default=72, alias="THEKEDAR_APPROVAL_TTL_HOURS")
     max_coding_iterations: int = Field(default=25, alias="THEKEDAR_MAX_CODING_ITERATIONS")
 
+    # Antigravity & SDK integration
+    antigravity_mode: str = Field(default="auto", alias="THEKEDAR_ANTIGRAVITY_MODE")
+    antigravity_stream_events: bool = Field(default=False, alias="THEKEDAR_ANTIGRAVITY_STREAM_EVENTS")
+    context_max_tokens_per_pack: int = Field(default=8000, alias="THEKEDAR_CONTEXT_MAX_TOKENS_PER_PACK")
+    context_retval_max_results: int = Field(default=10, alias="THEKEDAR_CONTEXT_RETRIEVAL_MAX_RESULTS")
+    github_mcp_enabled: bool = Field(default=True, alias="THEKEDAR_GITHUB_MCP_ENABLED")
+    github_mcp_tool_allowlist: str = Field(
+        default="get_issue,get_pull_request,get_file_contents",
+        alias="THEKEDAR_GITHUB_MCP_TOOL_ALLOWLIST"
+    )
+    context_max_age_minutes: int = Field(default=1440, alias="THEKEDAR_CONTEXT_MAX_AGE_MINUTES")
+    max_cost_per_run_usd: float = Field(default=10.0, alias="THEKEDAR_MAX_COST_PER_RUN_USD")
+    max_tokens_per_run: int = Field(default=1000000, alias="THEKEDAR_MAX_TOKENS_PER_RUN")
+    opt_in_db_sandbox: bool = Field(default=False, alias="THEKEDAR_OPT_IN_DB_SANDBOX")
+    sandbox_db_url: str = Field(default="sqlite:///:memory:", alias="THEKEDAR_SANDBOX_DB_URL")
+
     # M5 — remote execution and GCP workstations configuration
     remote_executor: str = Field(default="local", alias="THEKEDAR_REMOTE_EXECUTOR")
     workstation_repo_root: str = Field(default="/home/user/repos", alias="THEKEDAR_WORKSTATION_REPO_ROOT")

@@ -9,7 +9,8 @@ from thekedar_shared.settings import Settings
 from thekedar_execution.remote import InProcessFakeRemoteExecutor, set_global_executor
 
 
-def test_hibernate_idle(session_factory, test_settings: Settings) -> None:
+@pytest.mark.asyncio
+async def test_hibernate_idle(session_factory, test_settings: Settings) -> None:
     session = session_factory()
     session.add(
         WorkstationHealth(
@@ -23,7 +24,7 @@ def test_hibernate_idle(session_factory, test_settings: Settings) -> None:
     session.close()
 
     manager = WorkstationManager(test_settings, session_factory)
-    count = manager.hibernate_idle()
+    count = await manager.hibernate_idle()
     assert count == 1
 
     session = session_factory()

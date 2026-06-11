@@ -27,6 +27,7 @@ from thekedar_orchestrator.report import ReportGenerator
 from thekedar_orchestrator.ticket_utils import extract_issue_key
 from thekedar_shared.audit import log_audit, log_cost
 from thekedar_shared.db import AgentRun, RunArtifact, TicketCodeLink, Workspace
+from thekedar_shared.run_ledger import RunLedger
 from thekedar_shared.schemas import Channel, MessageEvent
 from thekedar_shared.settings import Settings
 from thekedar_shared.workspace import WorkspaceService
@@ -57,6 +58,7 @@ class CoderPipeline:
         self._reporter = ReportGenerator()
         self._execution = ExecutionRouter(settings, workstation)
         self._workspace = WorkspaceService(session_factory)
+        self._ledger = RunLedger(session_factory)
 
     def _repo_path(self) -> Path | None:
         if self._settings.local_repo_path:
@@ -247,6 +249,7 @@ class CoderPipeline:
         return state
 
     async def _node_load_context(self, state: dict, workspace: Workspace) -> dict:
+        step_id = self._ledger.begin_step(state["run_id"], state["tenant_id"], "load_context")
         session = self._session_factory()
         try:
             repo = state["repo"]
@@ -254,17 +257,24 @@ class CoderPipeline:
             run_id = state["run_id"]
 
             snapshot = self._retriever.latest_snapshot(session, tenant_id, repo)
-            if self._retriever.needs_refresh(snapshot):
-                repo_path = self._repo_path()
-                if repo_path and repo_path.is_dir():
-                    snapshot = self._indexer.index(session, tenant_id, repo, repo_path)
+            if snapshot is None or self._retriever.needs_refresh(snapshot):
+                if self._settings.remote_executor == "gcp":
+                    logger.info("Cold-start: Syncing and indexing remote workspace for tenant %s, repo %s", tenant_id, repo)
+                    await self._workstation.sync_repo_and_test(tenant_id, run_id)
+                    snapshot = self._retriever.latest_snapshot(session, tenant_id, repo)
+                else:
+                    repo_path = self._repo_path()
+                    if repo_path and repo_path.is_dir():
+                        snapshot = self._indexer.index(session, tenant_id, repo, repo_path)
 
             ctx = self._retriever.load_global_context(session, tenant_id, repo)
             if ctx is None:
+                self._ledger.fail_step(step_id, error_class="LoadContextError", error_message="Could not load global context")
+                # If indexing failed or still missing, pause and ask for indexing
                 return {
                     **state,
-                    "reply": "Could not load codebase context. Run: thekedar context index",
-                    "status": "failed",
+                    "reply": self._with_dashboard("Could not load codebase context. Repo is indexing or requires manual indexing."),
+                    "status": "awaiting_index",
                     "workflow": "coder",
                     "current_node": "load_context",
                 }
@@ -273,10 +283,23 @@ class CoderPipeline:
             workstation_sha = await self._workstation.get_git_sha(tenant_id, repo)
             staleness_warning = None
             if snapshot and workstation_sha and snapshot.sha != workstation_sha:
-                staleness_warning = (
-                    f"Warning: Codebase context is stale! Snapshot SHA ({snapshot.sha[:7]}) "
-                    f"does not match Workstation HEAD ({workstation_sha[:7]})."
-                )
+                # Stale snapshot handling: if staging/prod, trigger automatic re-indexing or warn
+                if self._settings.environment in ("staging", "prod"):
+                    logger.info("Snapshot SHA is stale. Enqueuing automatic re-index.")
+                    if self._settings.remote_executor == "gcp":
+                        await self._workstation.sync_repo_and_test(tenant_id, run_id)
+                        snapshot = self._retriever.latest_snapshot(session, tenant_id, repo)
+                        ctx = self._retriever.load_global_context(session, tenant_id, repo) or ctx
+                    else:
+                        repo_path = self._repo_path()
+                        if repo_path and repo_path.is_dir():
+                            snapshot = self._indexer.index(session, tenant_id, repo, repo_path)
+                            ctx = self._retriever.load_global_context(session, tenant_id, repo) or ctx
+                else:
+                    staleness_warning = (
+                        f"Warning: Codebase context is stale! Snapshot SHA ({snapshot.sha[:7]}) "
+                        f"does not match Workstation HEAD ({workstation_sha[:7]})."
+                    )
 
             run = session.get(AgentRun, run_id)
             if run:
@@ -284,6 +307,7 @@ class CoderPipeline:
                 run.current_node = "load_context"
                 session.commit()
 
+            self._ledger.complete_step(step_id, {"context_snapshot_id": ctx.snapshot_id})
             return {
                 **state,
                 "context_snapshot_id": ctx.snapshot_id,
@@ -291,10 +315,14 @@ class CoderPipeline:
                 "current_node": "assess_impact",
                 "staleness_warning": staleness_warning,
             }
+        except Exception as exc:
+            self._ledger.fail_step(step_id, error_class=exc.__class__.__name__, error_message=str(exc))
+            raise
         finally:
             session.close()
 
     async def _node_assess_impact(self, state: dict, workspace: Workspace) -> dict:
+        step_id = self._ledger.begin_step(state["run_id"], state["tenant_id"], "assess_impact")
         ctx = GlobalContext.model_validate(state["global_context"])
         message = MessageEvent.model_validate(state["message"])
         session = self._session_factory()
@@ -322,6 +350,10 @@ class CoderPipeline:
             log_cost(session, state["tenant_id"], "llm", 0.03, state["run_id"])
             session.commit()
             approval_id = approval.id
+            self._ledger.complete_step(step_id, {"impact_report": report.model_dump()})
+        except Exception as exc:
+            self._ledger.fail_step(step_id, error_class=exc.__class__.__name__, error_message=str(exc))
+            raise
         finally:
             session.close()
 
@@ -344,53 +376,60 @@ class CoderPipeline:
         }
 
     async def _node_generate_plan(self, state: dict, workspace: Workspace) -> dict:
+        step_id = self._ledger.begin_step(state["run_id"], state["tenant_id"], "generate_plan")
         user_msg = state.get("user_message") or ""
         impact = ImpactReport.model_validate(state["impact_report"])
         ctx = GlobalContext.model_validate(state["global_context"])
 
-        plan = ExecutionPlan.model_validate(state["execution_plan"]) if state.get("execution_plan") else None
-        if plan is None:
-            require_files = self._settings.environment in ("staging", "prod") or (
-                self._settings.strict_integrations
-            )
-            plan = self._planner.generate(
-                state["message"]["text"],
-                ctx,
-                impact,
-                state.get("issue_key"),
-                require_files=require_files,
-            )
-
-        if user_msg and self._planner.is_amendment(user_msg):
-            count = int(state.get("plan_amendment_count") or 0)
-            if count < 3:
-                plan = self._planner.apply_amendment(plan, user_msg)
-                state["plan_amendment_count"] = count + 1
-
-        message = MessageEvent.model_validate(state["message"])
-        session = self._session_factory()
         try:
-            self._save_artifact(session, state["run_id"], state["tenant_id"], "plan", plan.model_dump())
-            approval = create_approval(
-                session,
-                tenant_id=state["tenant_id"],
-                run_id=state["run_id"],
-                approval_type="plan_review",
-                stage=STAGE_PLAN,
-                summary=f"Plan: {plan.summary[:120]}",
-                payload=plan.model_dump(),
-                channel_reply_token=message.reply_token,
-            )
-            run = session.get(AgentRun, state["run_id"])
-            if run:
-                run.status = "awaiting_approval"
-                run.current_node = "await_plan"
-                run.branch_name = plan.branch_name
-            log_cost(session, state["tenant_id"], "llm", 0.02, state["run_id"])
-            session.commit()
-            approval_id = approval.id
-        finally:
-            session.close()
+            plan = ExecutionPlan.model_validate(state["execution_plan"]) if state.get("execution_plan") else None
+            if plan is None:
+                require_files = self._settings.environment in ("staging", "prod") or (
+                    self._settings.strict_integrations
+                )
+                plan = self._planner.generate(
+                    state["message"]["text"],
+                    ctx,
+                    impact,
+                    state.get("issue_key"),
+                    require_files=require_files,
+                )
+
+            if user_msg and self._planner.is_amendment(user_msg):
+                count = int(state.get("plan_amendment_count") or 0)
+                if count < 3:
+                    plan = self._planner.apply_amendment(plan, user_msg)
+                    state["plan_amendment_count"] = count + 1
+
+            message = MessageEvent.model_validate(state["message"])
+            session = self._session_factory()
+            try:
+                self._save_artifact(session, state["run_id"], state["tenant_id"], "plan", plan.model_dump())
+                approval = create_approval(
+                    session,
+                    tenant_id=state["tenant_id"],
+                    run_id=state["run_id"],
+                    approval_type="plan_review",
+                    stage=STAGE_PLAN,
+                    summary=f"Plan: {plan.summary[:120]}",
+                    payload=plan.model_dump(),
+                    channel_reply_token=message.reply_token,
+                )
+                run = session.get(AgentRun, state["run_id"])
+                if run:
+                    run.status = "awaiting_approval"
+                    run.current_node = "await_plan"
+                    run.branch_name = plan.branch_name
+                log_cost(session, state["tenant_id"], "llm", 0.02, state["run_id"])
+                session.commit()
+                approval_id = approval.id
+            finally:
+                session.close()
+
+            self._ledger.complete_step(step_id, {"execution_plan": plan.model_dump()})
+        except Exception as exc:
+            self._ledger.fail_step(step_id, error_class=exc.__class__.__name__, error_message=str(exc))
+            raise
 
         summary_text = plan.to_chat_summary(self._settings.dashboard_url, state["run_id"])
         if state.get("staleness_warning"):
@@ -410,9 +449,11 @@ class CoderPipeline:
         }
 
     async def _node_execute_coding(self, state: dict, workspace: Workspace) -> dict:
+        step_id = self._ledger.begin_step(state["run_id"], state["tenant_id"], "execute_coding")
         iterations = state.get("coding_iterations", 0) + 1
         state["coding_iterations"] = iterations
         if iterations > self._settings.max_coding_iterations:
+            self._ledger.fail_step(step_id, error_class="MaxCodingIterationsExceeded", error_message="Aborted: exceeded maximum coding iterations")
             return {
                 **state,
                 "reply": self._with_dashboard(f"Aborted: exceeded maximum coding iterations ({self._settings.max_coding_iterations})"),
@@ -425,11 +466,11 @@ class CoderPipeline:
         ctx = GlobalContext.model_validate(state["global_context"])
         branch = plan.branch_name
 
-        # Check environment and SHA mismatch (SHA gate)
+        # Check environment and SHA mismatch (SHA gate) - with self-healing re-indexing
         session = self._session_factory()
         try:
-            repo = state["repo"]
-            tenant_id = state["tenant_id"]
+            repo = state.get("repo") or ctx.repo
+            tenant_id = state.get("tenant_id") or ctx.tenant_id
             snapshot = self._retriever.latest_snapshot(session, tenant_id, repo)
             workstation_sha = await self._workstation.get_git_sha(tenant_id, repo)
             
@@ -440,17 +481,15 @@ class CoderPipeline:
                 and snapshot.sha != workstation_sha
                 and not state.get("override_stale_context")
             ):
-                return {
-                    **state,
-                    "reply": self._with_dashboard(
-                        f"Aborted: Codebase context is stale! Snapshot SHA ({snapshot.sha[:7]}) "
-                        f"does not match Workstation HEAD ({workstation_sha[:7]}). "
-                        f"Please re-index your context or reply with 'override' to bypass."
-                    ),
-                    "status": "failed",
-                    "workflow": "coder",
-                    "current_node": "execute_coding",
-                }
+                logger.info("Self-healing context: detected stale snapshot. Triggering automatic sync and incremental reindexing.")
+                await self._workstation.sync_repo_and_test(tenant_id, state["run_id"])
+                # Refresh snapshot and context
+                snapshot = self._retriever.latest_snapshot(session, tenant_id, repo)
+                ctx = self._retriever.load_global_context(session, tenant_id, repo) or ctx
+                state["global_context"] = ctx.model_dump()
+                logger.info("Self-healing context: successfully refreshed snapshot to SHA %s", snapshot.sha if snapshot else "None")
+        except Exception as self_heal_err:
+            logger.error("Self-healing context failed: %s", self_heal_err)
         finally:
             session.close()
 
@@ -461,23 +500,41 @@ class CoderPipeline:
                 run.status = "coding"
                 run.current_node = "execute_coding"
                 session.commit()
+        except Exception as run_err:
+            logger.error("Failed to update run status: %s", run_err)
         finally:
             session.close()
 
-        await self._workstation.ensure_ready(workspace.tenant_id, workspace.cloud_workstation_config_id)
-        pre_test = await self._workstation.sync_repo_and_test(workspace.tenant_id, state["run_id"])
-        if pre_test.status != "passed":
-            return {
-                **state,
-                "reply": self._with_dashboard(f"Aborted: baseline tests failed — {pre_test.summary}"),
-                "status": "failed",
-                "workflow": "coder",
-                "current_node": "sync_repo",
-            }
-
         try:
+            await self._workstation.ensure_ready(workspace.tenant_id, workspace.cloud_workstation_config_id)
+            pre_test = await self._workstation.sync_repo_and_test(workspace.tenant_id, state["run_id"])
+            if pre_test.status != "passed":
+                self._ledger.fail_step(step_id, error_class="BaselineTestFailure", error_message=f"Aborted: baseline tests failed - {pre_test.summary}")
+                return {
+                    **state,
+                    "reply": self._with_dashboard(f"Aborted: baseline tests failed — {pre_test.summary}"),
+                    "status": "failed",
+                    "workflow": "coder",
+                    "current_node": "sync_repo",
+                }
+
             executor = self._execution.select(workspace)
+            coding = await executor.run_coding(plan, ctx, branch, state["run_id"])
+            state["coding_result"] = {
+                "success": coding.success,
+                "summary": coding.summary,
+                "files_changed": coding.files_changed,
+                "tests_added": coding.tests_added,
+                "tests_updated": coding.tests_updated,
+                "commits_ahead": coding.commits_ahead,
+                "error": coding.error,
+            }
+            state["current_node"] = "run_tests"
+            state["branch_name"] = branch
+            self._ledger.complete_step(step_id, {"coding_result": state["coding_result"]})
+            return state
         except ExecutionUnavailable as exc:
+            self._ledger.fail_step(step_id, error_class="ExecutionUnavailable", error_message=str(exc))
             return {
                 **state,
                 "reply": self._with_dashboard(str(exc)),
@@ -485,22 +542,12 @@ class CoderPipeline:
                 "workflow": "coder",
                 "current_node": "select_executor",
             }
-
-        coding = await executor.run_coding(plan, ctx, branch, state["run_id"])
-        state["coding_result"] = {
-            "success": coding.success,
-            "summary": coding.summary,
-            "files_changed": coding.files_changed,
-            "tests_added": coding.tests_added,
-            "tests_updated": coding.tests_updated,
-            "commits_ahead": coding.commits_ahead,
-            "error": coding.error,
-        }
-        state["current_node"] = "run_tests"
-        state["branch_name"] = branch
-        return state
+        except Exception as exc:
+            self._ledger.fail_step(step_id, error_class=exc.__class__.__name__, error_message=str(exc))
+            raise
 
     async def _node_run_tests_and_report(self, state: dict, workspace: Workspace) -> dict:
+        step_id = self._ledger.begin_step(state["run_id"], state["tenant_id"], "run_tests_and_report")
         plan = ExecutionPlan.model_validate(state["execution_plan"])
         impact = ImpactReport.model_validate(state["impact_report"])
         from thekedar_ide_adapters import CodingResult
@@ -508,100 +555,116 @@ class CoderPipeline:
         coding = CodingResult(**state["coding_result"])
 
         try:
-            executor = self._execution.select(workspace)
-            test_status, test_summary = await executor.run_tests(workspace.tenant_id, state["run_id"])
-        except ExecutionUnavailable:
-            test_status, test_summary = "failed", "No executor"
+            try:
+                executor = self._execution.select(workspace)
+                test_status, test_summary = await executor.run_tests(workspace.tenant_id, state["run_id"])
+                
+                # DB sandbox verification check
+                from thekedar_orchestrator.policy_gate import verify_db_sandbox
+                p_path = self._repo_path()
+                sandbox_success, sandbox_msg = verify_db_sandbox(self._settings, str(p_path) if p_path else "")
+                if not sandbox_success:
+                    test_status = "failed"
+                    test_summary = f"Database Sandbox Verification Failed: {sandbox_msg}\n{test_summary}"
+            except ExecutionUnavailable:
+                test_status, test_summary = "failed", "No executor"
 
-        session = self._session_factory()
-        try:
-            from thekedar_shared.db import TestRunRecord
+            session = self._session_factory()
+            try:
+                from thekedar_shared.db import TestRunRecord
 
-            session.add(
-                TestRunRecord(
+                session.add(
+                    TestRunRecord(
+                        tenant_id=state["tenant_id"],
+                        run_id=state["run_id"],
+                        status=test_status,
+                        summary=test_summary[:2000],
+                    )
+                )
+                log_cost(session, state["tenant_id"], "compute", 0.2, state["run_id"])
+                session.commit()
+            finally:
+                session.close()
+
+            if not coding.success or coding.commits_ahead <= 0:
+                self._ledger.fail_step(step_id, error_class="CodingOutputEmpty", error_message="Coding finished but no commits were produced")
+                return {
+                    **state,
+                    "reply": self._with_dashboard(
+                        "Coding finished but no commits were produced. Publish blocked."
+                    ),
+                    "status": "failed",
+                    "workflow": "coder",
+                    "current_node": "coding_failed",
+                }
+
+            if test_status != "passed":
+                self._ledger.fail_step(step_id, error_class="TestsFailed", error_message="Tests failed - publish blocked")
+                return {
+                    **state,
+                    "reply": self._with_dashboard(f"Tests failed — publish blocked.\n{test_summary[:500]}"),
+                    "status": "failed",
+                    "workflow": "coder",
+                    "current_node": "tests_failed",
+                }
+
+            compare_url = f"https://github.com/{state['repo']}/compare/main...{plan.branch_name}"
+            report = self._reporter.generate(
+                plan,
+                impact,
+                coding,
+                test_status,
+                test_summary,
+                cost_usd=0.25,
+                compare_url=compare_url,
+            )
+            state["completion_report"] = report.model_dump()
+
+            message = MessageEvent.model_validate(state["message"])
+            session = self._session_factory()
+            try:
+                self._save_artifact(
+                    session, state["run_id"], state["tenant_id"], "report", report.model_dump()
+                )
+                approval = create_approval(
+                    session,
                     tenant_id=state["tenant_id"],
                     run_id=state["run_id"],
-                    status=test_status,
-                    summary=test_summary[:2000],
+                    approval_type="publish_review",
+                    stage=STAGE_PUBLISH,
+                    summary=f"Publish: {report.summary[:120]}",
+                    payload=report.model_dump(),
+                    channel_reply_token=message.reply_token,
                 )
-            )
-            log_cost(session, state["tenant_id"], "compute", 0.2, state["run_id"])
-            session.commit()
-        finally:
-            session.close()
+                run = session.get(AgentRun, state["run_id"])
+                if run:
+                    run.status = "report_ready"
+                    run.current_node = "await_publish"
+                session.commit()
+                approval_id = approval.id
+            finally:
+                session.close()
 
-        if not coding.success or coding.commits_ahead <= 0:
+            reply = self._with_dashboard(
+                report.to_chat_summary(self._settings.dashboard_url, state["run_id"])
+            )
+            self._ledger.complete_step(step_id, {"completion_report": report.model_dump()})
             return {
                 **state,
-                "reply": self._with_dashboard(
-                    "Coding finished but no commits were produced. Publish blocked."
-                ),
-                "status": "failed",
+                "reply": reply,
+                "approval_id": approval_id,
+                "awaiting_stage": STAGE_PUBLISH,
+                "paused": True,
+                "status": "awaiting_approval",
                 "workflow": "coder",
-                "current_node": "coding_failed",
+                "current_node": "await_publish",
             }
-
-        if test_status != "passed":
-            return {
-                **state,
-                "reply": self._with_dashboard(f"Tests failed — publish blocked.\n{test_summary[:500]}"),
-                "status": "failed",
-                "workflow": "coder",
-                "current_node": "tests_failed",
-            }
-
-        compare_url = f"https://github.com/{state['repo']}/compare/main...{plan.branch_name}"
-        report = self._reporter.generate(
-            plan,
-            impact,
-            coding,
-            test_status,
-            test_summary,
-            cost_usd=0.25,
-            compare_url=compare_url,
-        )
-        state["completion_report"] = report.model_dump()
-
-        message = MessageEvent.model_validate(state["message"])
-        session = self._session_factory()
-        try:
-            self._save_artifact(
-                session, state["run_id"], state["tenant_id"], "report", report.model_dump()
-            )
-            approval = create_approval(
-                session,
-                tenant_id=state["tenant_id"],
-                run_id=state["run_id"],
-                approval_type="publish_review",
-                stage=STAGE_PUBLISH,
-                summary=f"Publish: {report.summary[:120]}",
-                payload=report.model_dump(),
-                channel_reply_token=message.reply_token,
-            )
-            run = session.get(AgentRun, state["run_id"])
-            if run:
-                run.status = "report_ready"
-                run.current_node = "await_publish"
-            session.commit()
-            approval_id = approval.id
-        finally:
-            session.close()
-
-        reply = self._with_dashboard(
-            report.to_chat_summary(self._settings.dashboard_url, state["run_id"])
-        )
-        return {
-            **state,
-            "reply": reply,
-            "approval_id": approval_id,
-            "awaiting_stage": STAGE_PUBLISH,
-            "paused": True,
-            "status": "awaiting_approval",
-            "workflow": "coder",
-            "current_node": "await_publish",
-        }
+        except Exception as exc:
+            self._ledger.fail_step(step_id, error_class=exc.__class__.__name__, error_message=str(exc))
+            raise
 
     async def _node_publish(self, state: dict, workspace: Workspace) -> dict:
+        step_id = self._ledger.begin_step(state["run_id"], state["tenant_id"], "publish")
         from thekedar_orchestrator.policy_gate import enforce_mcp_policy, PolicyViolation
 
         plan = ExecutionPlan.model_validate(state["execution_plan"])
@@ -612,84 +675,90 @@ class CoderPipeline:
         issue_key = state.get("issue_key") or "TASK"
 
         try:
-            enforce_mcp_policy(self._settings, "github", "create_branch", {"repo": repo, "branch": branch})
-            if "push" not in intent or "pr" in intent:
-                enforce_mcp_policy(self._settings, "github", "create_pull_request", {"repo": repo, "branch": branch})
-        except PolicyViolation as exc:
+            try:
+                enforce_mcp_policy(self._settings, "github", "create_branch", {"repo": repo, "branch": branch})
+                if "push" not in intent or "pr" in intent:
+                    enforce_mcp_policy(self._settings, "github", "create_pull_request", {"repo": repo, "branch": branch})
+            except PolicyViolation as exc:
+                session = self._session_factory()
+                try:
+                    run = session.get(AgentRun, state["run_id"])
+                    if run:
+                        run.status = "failed"
+                        run.current_node = "publish_failed"
+                    session.commit()
+                finally:
+                    session.close()
+                self._ledger.fail_step(step_id, error_class="PolicyViolation", error_message=f"Publish blocked by policy constraint: {exc}")
+                return {
+                    **state,
+                    "reply": f"Publish blocked by policy constraint: {exc}",
+                    "status": "failed",
+                    "workflow": "coder",
+                    "current_node": "publish_failed",
+                }
+
+            await self._github.create_branch(repo, branch)
+
+            pr_url = None
+            if "push" in intent and "pr" not in intent:
+                action = f"Pushed branch `{branch}`"
+            else:
+                pr_body = (
+                    f"## Thekedar automated PR\n\n{report.summary}\n\n"
+                    f"Tests: {report.tests_passed} passed\n"
+                    f"Modules: {', '.join(report.modules_changed)}\n\n"
+                    f"Review diff in GitHub — not in chat."
+                )
+                pr = await self._github.create_pull_request(
+                    repo,
+                    f"{issue_key}: {plan.summary[:80]}",
+                    branch,
+                    pr_body,
+                )
+                pr_url = pr.url
+                action = f"PR created: {pr.url}"
+
             session = self._session_factory()
             try:
+                message = MessageEvent.model_validate(state["message"])
+                self._upsert_ticket_link(
+                    session,
+                    workspace.tenant_id,
+                    issue_key,
+                    plan.summary,
+                    "In Review",
+                    branch_name=branch,
+                    pr_url=pr_url,
+                    pr_number=1 if pr_url else None,
+                )
+                log_audit(session, workspace.tenant_id, message.user_id, "github.publish", branch)
                 run = session.get(AgentRun, state["run_id"])
                 if run:
-                    run.status = "failed"
-                    run.current_node = "publish_failed"
+                    run.status = "completed"
+                    run.current_node = "published"
+                    run.pr_url = pr_url
+                    run.branch_name = branch
                 session.commit()
             finally:
                 session.close()
+
+            reply = self._with_dashboard(
+                f"*Published*\n{action}\nBranch: `{branch}`\nCommits: {report.commits_ahead}"
+            )
+            self._ledger.complete_step(step_id, {"pr_url": pr_url, "branch": branch})
             return {
                 **state,
-                "reply": f"Publish blocked by policy constraint: {exc}",
-                "status": "failed",
+                "reply": reply,
+                "pr_url": pr_url,
+                "status": "completed",
                 "workflow": "coder",
-                "current_node": "publish_failed",
+                "current_node": "published",
+                "issue_key": issue_key,
             }
-
-        await self._github.create_branch(repo, branch)
-
-        pr_url = None
-        if "push" in intent and "pr" not in intent:
-            action = f"Pushed branch `{branch}`"
-        else:
-            pr_body = (
-                f"## Thekedar automated PR\n\n{report.summary}\n\n"
-                f"Tests: {report.tests_passed} passed\n"
-                f"Modules: {', '.join(report.modules_changed)}\n\n"
-                f"Review diff in GitHub — not in chat."
-            )
-            pr = await self._github.create_pull_request(
-                repo,
-                f"{issue_key}: {plan.summary[:80]}",
-                branch,
-                pr_body,
-            )
-            pr_url = pr.url
-            action = f"PR created: {pr.url}"
-
-        session = self._session_factory()
-        try:
-            message = MessageEvent.model_validate(state["message"])
-            self._upsert_ticket_link(
-                session,
-                workspace.tenant_id,
-                issue_key,
-                plan.summary,
-                "In Review",
-                branch_name=branch,
-                pr_url=pr_url,
-                pr_number=1 if pr_url else None,
-            )
-            log_audit(session, workspace.tenant_id, message.user_id, "github.publish", branch)
-            run = session.get(AgentRun, state["run_id"])
-            if run:
-                run.status = "completed"
-                run.current_node = "published"
-                run.pr_url = pr_url
-                run.branch_name = branch
-            session.commit()
-        finally:
-            session.close()
-
-        reply = self._with_dashboard(
-            f"*Published*\n{action}\nBranch: `{branch}`\nCommits: {report.commits_ahead}"
-        )
-        return {
-            **state,
-            "reply": reply,
-            "pr_url": pr_url,
-            "status": "completed",
-            "workflow": "coder",
-            "current_node": "published",
-            "issue_key": issue_key,
-        }
+        except Exception as exc:
+            self._ledger.fail_step(step_id, error_class=exc.__class__.__name__, error_message=str(exc))
+            raise
 
     def _primary_repo(self, workspace: Workspace) -> str:
         import json

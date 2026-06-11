@@ -162,7 +162,7 @@ class WorkstationManager:
         finally:
             session.close()
 
-    def hibernate_idle(self) -> int:
+    async def hibernate_idle(self) -> int:
         session = self._session_factory()
         count = 0
         try:
@@ -173,9 +173,24 @@ class WorkstationManager:
                 .filter(WorkstationHealth.last_activity_at < cutoff)
                 .all()
             )
+            from thekedar_shared.db import Workspace
+            from thekedar_execution.gcp_workstations import GcpWorkstationClient
+            gcp_client = GcpWorkstationClient(self._settings)
+
             for ws in rows:
                 ws.state = "sleeping"
                 count += 1
+                
+                # Fetch config_id from Workspace
+                workspace = session.query(Workspace).filter_by(tenant_id=ws.tenant_id).first()
+                config_id = workspace.cloud_workstation_config_id if workspace else None
+
+                # Stop/Hibernate the remote GCP Workstation
+                try:
+                    await gcp_client.stop(ws.tenant_id, config_id)
+                except Exception as stop_err:
+                    logger.error("Failed to stop remote GCP Workstation for %s: %s", ws.tenant_id, stop_err)
+
                 try:
                     from thekedar_shared.events import DomainEvent, EventType
                     event = DomainEvent(

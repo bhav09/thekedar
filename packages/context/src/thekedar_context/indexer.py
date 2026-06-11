@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import subprocess
+import yaml
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -105,11 +106,15 @@ class RepoIndexer:
 
         symbols: list[str] = []
         for rel in files:
-            if rel.endswith(".py") and "test" not in rel:
+            if rel.endswith((".py", ".ts", ".tsx", ".js", ".jsx")) and "test" not in rel:
                 text = self._read_text(root, rel, 32_000)
                 for line in text.splitlines():
                     stripped = line.strip()
-                    if stripped.startswith(("def ", "class ", "async def ")):
+                    if stripped.startswith((
+                        "def ", "class ", "async def ", 
+                        "function ", "const ", "let ", 
+                        "export const ", "export class ", "export function "
+                    )):
                         symbols.append(f"{rel}:{stripped[:80]}")
         chunks.append(
             (
@@ -124,6 +129,39 @@ class RepoIndexer:
             if name in manifest:
                 deps[name] = manifest[name][:4000]
         chunks.append(("dependency_graph", self._hash_content(json.dumps(deps)), deps))
+
+        # service_graph extraction
+        services_list = []
+        services_dir = root / "services"
+        if services_dir.is_dir():
+            services_list = [p.name for p in services_dir.iterdir() if p.is_dir()]
+        
+        compose_files = ["docker-compose.yml", "docker-compose.yaml", "docker-compose.dev.yml"]
+        compose_services = []
+        for cf in compose_files:
+            cf_path = root / cf
+            if cf_path.is_file():
+                try:
+                    with open(cf_path) as f:
+                        cf_data = yaml.safe_load(f) or {}
+                    services_dict = cf_data.get("services", {})
+                    if isinstance(services_dict, dict):
+                        compose_services.extend(list(services_dict.keys()))
+                except Exception:
+                    pass
+        
+        service_graph = {
+            "services": list(set(services_list + compose_services)),
+            "compose_services": compose_services,
+            "directory_services": services_list,
+        }
+        chunks.append(
+            (
+                "service_graph",
+                self._hash_content(json.dumps(service_graph)),
+                service_graph,
+            )
+        )
 
         test_files = [f for f in files if f.startswith("tests/") or "test_" in f]
         test_map = {

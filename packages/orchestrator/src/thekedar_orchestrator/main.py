@@ -65,6 +65,8 @@ async def run_worker_async() -> None:
                 await deliver_pending(
                     worker.session_factory, settings, limit=5, registry=worker._registry
                 )
+            
+            await worker.expire_stale_approvals()
     finally:
         health_task.cancel()
 

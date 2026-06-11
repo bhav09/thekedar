@@ -67,6 +67,9 @@ class ContextRetriever:
             security_profile=data.get("security_profile", {})
             if isinstance(data.get("security_profile"), dict)
             else {},
+            service_graph=data.get("service_graph", {})
+            if isinstance(data.get("service_graph"), dict)
+            else {},
         )
 
     def query(self, session: Session, query: ContextQuery) -> list[dict]:
@@ -81,6 +84,7 @@ class ContextRetriever:
         check_doc = not query.chunk_types or "doc" in query.chunk_types
         check_symbol = not query.chunk_types or "symbol" in query.chunk_types
         check_security = not query.chunk_types or "security" in query.chunk_types
+        check_service = not query.chunk_types or "service_graph" in query.chunk_types
 
         if check_doc:
             for doc in ctx.doc_chunks:
@@ -99,5 +103,12 @@ class ContextRetriever:
                 for mod in auth_modules:
                     if not keywords or any(k in mod.lower() for k in keywords):
                         hits.append({"type": "security", "ref": mod})
+
+        if check_service:
+            services = ctx.service_graph.get("services", [])
+            if isinstance(services, list):
+                for srv in services:
+                    if not keywords or any(k in srv.lower() for k in keywords):
+                        hits.append({"type": "service_graph", "ref": srv})
 
         return hits[:50]

@@ -196,7 +196,7 @@ async def _trigger_reindex_async(session_factory, repo_name: str, tenant_ids: li
                     workspace_service = WorkspaceService(lambda: session)
                     primary = workspace_service.primary_repo(workspace)
                     if primary == repo_name:
-                        from thekedar_orchestrator.integrations.workstation import select_remote_executor
+                        from thekedar_execution import select_remote_executor
                         from thekedar_shared.settings import get_settings
                         settings = get_settings()
                         executor = select_remote_executor(settings)

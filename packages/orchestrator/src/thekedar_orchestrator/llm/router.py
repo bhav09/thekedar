@@ -62,6 +62,21 @@ class LLMRouter:
                     await self._registry.record_success(f"llm:{provider}")
                 if session is not None:
                     log_cost(session, tenant_id, "llm", 0.05, run_id)
+                    
+                    if run_id:
+                        # Enforce per-run budget ceiling
+                        from thekedar_shared.db import CostRecord, Workspace
+                        from sqlalchemy import func
+                        accumulated_cost = session.query(func.sum(CostRecord.amount_usd)).filter_by(run_id=run_id).scalar() or 0.0
+                        if accumulated_cost > self._settings.max_cost_per_run_usd:
+                            raise ValueError(f"Aborted: Per-run cost limit of {self._settings.max_cost_per_run_usd} USD exceeded for run {run_id}.")
+
+                        # Enforce per-run token ceiling (estimate 500 tokens per call)
+                        llm_calls_count = session.query(func.count(CostRecord.id)).filter_by(run_id=run_id, category="llm").scalar() or 0
+                        total_tokens = llm_calls_count * 500
+                        if total_tokens > self._settings.max_tokens_per_run:
+                            raise ValueError(f"Aborted: Per-run token limit of {self._settings.max_tokens_per_run} tokens exceeded for run {run_id}.")
+
                     # Check cost ceiling hook - abort if cumulative cost exceeds workspace budget
                     from thekedar_shared.db import CostRecord, Workspace
                     from sqlalchemy import func

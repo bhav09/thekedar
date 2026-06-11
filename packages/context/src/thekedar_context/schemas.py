@@ -25,6 +25,7 @@ class GlobalContext(BaseModel):
     dependency_graph: dict[str, Any] = Field(default_factory=dict)
     test_map: dict[str, Any] = Field(default_factory=dict)
     security_profile: dict[str, Any] = Field(default_factory=dict)
+    service_graph: dict[str, Any] = Field(default_factory=dict)
 
 
 class ContextQuery(BaseModel):

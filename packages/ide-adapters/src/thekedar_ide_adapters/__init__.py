@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, Any
 
 from thekedar_context.schemas import ExecutionPlan, GlobalContext
 from thekedar_shared.settings import Settings
@@ -31,6 +31,7 @@ class IDEAdapter(Protocol):
 
 def select_adapter(settings: Settings) -> IDEAdapter:
     from thekedar_ide_adapters.antigravity import AntigravityAdapter
+    from thekedar_ide_adapters.antigravity_sdk import AntigravitySdkAdapter, SDK_AVAILABLE
     from thekedar_ide_adapters.claude import ClaudeCodeAdapter
     from thekedar_ide_adapters.cursor import CursorAdapter
     from thekedar_ide_adapters.mock import MockIDEAdapter
@@ -44,11 +45,22 @@ def select_adapter(settings: Settings) -> IDEAdapter:
             raise ConfigurationError("MockIDEAdapter is not allowed in staging/prod environments")
         return MockIDEAdapter(settings)
 
-    mapping: dict[str, type] = {
+    def _resolve_antigravity() -> IDEAdapter:
+        mode = settings.antigravity_mode.lower()
+        if mode == "sdk":
+            return AntigravitySdkAdapter(settings)
+        elif mode == "cli":
+            return AntigravityAdapter(settings)
+        else: # auto
+            if SDK_AVAILABLE:
+                return AntigravitySdkAdapter(settings)
+            return AntigravityAdapter(settings)
+
+    mapping: dict[str, Any] = {
         "cursor": CursorAdapter,
         "vscode": VSCodeAdapter,
         "claude": ClaudeCodeAdapter,
-        "antigravity": AntigravityAdapter,
+        "antigravity": _resolve_antigravity,
         "mock": MockIDEAdapter,
     }
 
@@ -57,8 +69,8 @@ def select_adapter(settings: Settings) -> IDEAdapter:
             return ClaudeCodeAdapter(settings)
         elif command_available("cursor") or command_available("cursor-agent"):
             return CursorAdapter(settings)
-        elif command_available("agy") or command_available("antigravity"):
-            return AntigravityAdapter(settings)
+        elif SDK_AVAILABLE or command_available("agy") or command_available("antigravity"):
+            return _resolve_antigravity()
         else:
             if settings.environment in ("staging", "prod") and not settings.demo_mode:
                 raise ConfigurationError("No available IDE CLI found in 'auto' mode in staging/prod")
@@ -70,7 +82,16 @@ def select_adapter(settings: Settings) -> IDEAdapter:
                 pass
             return MockIDEAdapter(settings)
 
-    cls = mapping.get(name, MockIDEAdapter)
+    resolved = mapping.get(name)
+    if resolved is None:
+        if settings.environment in ("staging", "prod") and not settings.demo_mode:
+            raise ConfigurationError(f"Unknown adapter '{name}' is not allowed in staging/prod environments")
+        return MockIDEAdapter(settings)
+
+    if callable(resolved) and not isinstance(resolved, type):
+        return resolved()
+
+    cls = resolved
     if cls == MockIDEAdapter and settings.environment in ("staging", "prod") and not settings.demo_mode:
         raise ConfigurationError(f"MockIDEAdapter/Unknown adapter '{name}' is not allowed in staging/prod environments")
 

@@ -228,6 +228,46 @@ class OrchestratorWorker:
     def seed(self) -> None:
         self._services.seed()
 
+    async def expire_stale_approvals(self) -> int:
+        """Finds pending approvals older than the TTL, marks them as expired/rejected, and cleans up checkpoint state."""
+        from datetime import datetime, UTC, timedelta
+        from thekedar_shared.db import PendingApproval, AgentRun
+        from thekedar_shared.audit import log_audit
+        
+        session = self._session_factory()
+        try:
+            cutoff = datetime.now(UTC) - timedelta(hours=self._settings.approval_ttl_hours)
+            stale_approvals = (
+                session.query(PendingApproval)
+                .filter(PendingApproval.status == "pending")
+                .filter(PendingApproval.created_at < cutoff)
+                .all()
+            )
+            count = 0
+            for app in stale_approvals:
+                app.status = "expired"
+                count += 1
+                log_audit(session, app.tenant_id, "system", "expire_approval", f"Approval {app.id} expired due to TTL limit")
+                
+                if app.run_id:
+                    run = session.get(AgentRun, app.run_id)
+                    if run and run.status == "awaiting_approval":
+                        run.status = "failed"
+                        run.reply_text = f"Aborted: Approval has expired after {self._settings.approval_ttl_hours} hours."
+                        
+                    # Delete the checkpoint
+                    if self._checkpoints:
+                        await self._checkpoints.delete(app.run_id)
+            
+            if count > 0:
+                session.commit()
+            return count
+        except Exception as e:
+            logger.error("Failed to expire stale approvals: %s", e)
+            return 0
+        finally:
+            session.close()
+
     @property
     def session_factory(self):
         return self._session_factory
@@ -255,7 +295,18 @@ class OrchestratorWorker:
 
 
 def run_hibernate_monitor(settings: Settings) -> None:
+    import asyncio
     session_factory = init_db(settings.database_url)
     manager = WorkstationManager(settings, session_factory)
-    count = manager.hibernate_idle()
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if loop.is_running():
+        import anyio
+        count = anyio.from_thread.run(manager.hibernate_idle)
+    else:
+        count = asyncio.run(manager.hibernate_idle())
     logger.info("Hibernated %s workstation(s)", count)
