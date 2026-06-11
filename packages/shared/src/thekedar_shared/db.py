@@ -31,6 +31,7 @@ class Workspace(Base):
     jira_project_key: Mapped[str] = mapped_column(String(32), default="THE")
     github_org: Mapped[str] = mapped_column(String(128), default="")
     github_repos: Mapped[str] = mapped_column(Text, default="[]")
+    github_project_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     slack_team_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     whatsapp_phone_number_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True

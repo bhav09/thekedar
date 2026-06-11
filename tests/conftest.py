@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import os
 
+# Clean environment variables to ensure test isolation
+for key in ["GITHUB_TOKEN", "JIRA_API_TOKEN", "JIRA_BASE_URL", "JIRA_EMAIL", "SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"]:
+    if key in os.environ:
+        del os.environ[key]
+
 import pytest
 from thekedar_orchestrator.services import OrchestratorServices
 from thekedar_shared.auth import create_access_token

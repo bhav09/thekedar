@@ -13,7 +13,10 @@ from thekedar_shared.db import (
     PendingApproval,
     TicketCodeLink,
     WorkstationHealth,
+    Workspace,
 )
+from pydantic import BaseModel
+from fastapi import HTTPException
 
 from thekedar_dashboard_hub.deps import get_session, get_tenant
 
@@ -333,4 +336,74 @@ def looker_export(
         "format": "csv",
         "rows": len(rows),
         "csv": "\n".join(csv_lines),
+    }
+
+
+class SettingsUpdateRequest(BaseModel):
+    github_project_url: str | None = None
+    jira_project_key: str | None = None
+    slack_team_id: str | None = None
+    whatsapp_phone_number_id: str | None = None
+
+
+@router.get("/workspaces")
+def workspaces_list(
+    session: Annotated[Session, Depends(get_session)],
+) -> dict:
+    workspaces = session.query(Workspace).order_by(Workspace.name.asc()).all()
+    return {
+        "widget": "workspaces",
+        "items": [
+            {
+                "tenant_id": w.tenant_id,
+                "name": w.name,
+                "jira_project_key": w.jira_project_key,
+                "github_project_url": w.github_project_url,
+                "slack_team_id": w.slack_team_id,
+                "whatsapp_phone_number_id": w.whatsapp_phone_number_id,
+            }
+            for w in workspaces
+        ]
+    }
+
+
+@router.post("/workspaces/settings")
+def update_settings(
+    body: SettingsUpdateRequest,
+    tenant_id: Annotated[str, Depends(get_tenant)],
+    session: Annotated[Session, Depends(get_session)],
+) -> dict:
+    workspace = session.query(Workspace).filter_by(tenant_id=tenant_id).first()
+    if workspace is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    
+    if body.github_project_url is not None:
+        workspace.github_project_url = body.github_project_url
+        from thekedar_shared.workspace import parse_github_url
+        import json
+        parsed = parse_github_url(body.github_project_url)
+        if parsed:
+            workspace.github_org = parsed[0]
+            workspace.github_repos = json.dumps(parsed[1])
+            
+    if body.jira_project_key is not None:
+        workspace.jira_project_key = body.jira_project_key
+        
+    if body.slack_team_id is not None:
+        workspace.slack_team_id = body.slack_team_id
+        
+    if body.whatsapp_phone_number_id is not None:
+        workspace.whatsapp_phone_number_id = body.whatsapp_phone_number_id
+        
+    session.commit()
+    return {
+        "status": "success",
+        "workspace": {
+            "tenant_id": workspace.tenant_id,
+            "name": workspace.name,
+            "github_project_url": workspace.github_project_url,
+            "jira_project_key": workspace.jira_project_key,
+            "slack_team_id": workspace.slack_team_id,
+            "whatsapp_phone_number_id": workspace.whatsapp_phone_number_id,
+        }
     }

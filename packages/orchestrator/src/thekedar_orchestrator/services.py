@@ -81,7 +81,7 @@ class OrchestratorServices:
         text = message.text.lower()
         session = self._session_factory()
         try:
-            if ("create" in text and "epic" in text) or "create issue" in text:
+            if "create" in text and any(k in text for k in ("epic", "issue", "task", "ticket", "bug")):
                 summary = message.text.split(":", 1)[-1].strip()[:120] or "New task from Thekedar"
                 issue = await self._jira.create_issue(workspace.jira_project_key, summary)
                 self._upsert_ticket_link(

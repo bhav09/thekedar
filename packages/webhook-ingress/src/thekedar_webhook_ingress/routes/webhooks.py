@@ -136,3 +136,4 @@ async def _enqueue_events(
                 "message": event.model_dump(mode="json"),
             }
         )
+        await idempotency.claim(event.idempotency_key)

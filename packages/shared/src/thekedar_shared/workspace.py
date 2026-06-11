@@ -68,3 +68,17 @@ class WorkspaceService:
         if not repos:
             return workspace.github_org
         return f"{workspace.github_org}/{repos[0]}" if workspace.github_org else repos[0]
+
+
+import re
+
+def parse_github_url(url: str | None) -> tuple[str, list[str]] | None:
+    if not url:
+        return None
+    url = url.strip()
+    match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git|/)?$", url, re.IGNORECASE)
+    if match:
+        org = match.group(1)
+        repo = match.group(2)
+        return org, [repo]
+    return None

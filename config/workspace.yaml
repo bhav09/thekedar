@@ -1,0 +1,12 @@
+workspaces:
+  - tenant_id: default
+    name: Demo Workspace
+    jira_project_key: THE
+    github_project_url: https://github.com/thekedar/thekedar
+    github_org: thekedar
+    github_repos:
+      - thekedar
+    slack_team_id: T001
+    whatsapp_phone_number_id: PN123
+    cloud_workstation_config_id: thekedar-ws-default
+    budget_monthly_usd: 100.0

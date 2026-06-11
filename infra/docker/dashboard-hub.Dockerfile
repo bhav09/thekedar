@@ -2,15 +2,13 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir uv
-
 COPY pyproject.toml ./
 COPY packages/shared/pyproject.toml packages/shared/
 COPY packages/dashboard-hub/pyproject.toml packages/dashboard-hub/
 COPY packages/shared/src packages/shared/src
 COPY packages/dashboard-hub/src packages/dashboard-hub/src
 
-RUN uv pip install --system --no-cache ./packages/shared ./packages/dashboard-hub
+RUN pip install --no-cache-dir ./packages/shared ./packages/dashboard-hub
 
 FROM python:3.12-slim AS runtime
 

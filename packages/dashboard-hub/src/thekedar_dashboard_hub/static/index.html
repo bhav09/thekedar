@@ -3,52 +3,633 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Thekedar Dashboard</title>
+  <title>Thekedar — Control Center</title>
   <link rel="manifest" href="/static/manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    :root { font-family: system-ui, sans-serif; background: #0f1117; color: #e6edf3; }
-    body { margin: 0; padding: 1.5rem; }
-    h1 { margin-top: 0; }
-    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; }
-    .card h2 { margin: 0 0 .75rem; font-size: 1rem; color: #58a6ff; }
-    pre { white-space: pre-wrap; word-break: break-word; font-size: .85rem; max-height: 240px; overflow: auto; }
-    .pill { display: inline-block; padding: .15rem .5rem; border-radius: 999px; background: #238636; font-size: .75rem; }
-    .search { margin: 1rem 0; display: flex; gap: .5rem; flex-wrap: wrap; }
-    .search input { flex: 1; min-width: 200px; padding: .5rem; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: inherit; }
-    .search button { padding: .5rem 1rem; border-radius: 6px; border: none; background: #238636; color: #fff; cursor: pointer; }
+    :root {
+      --bg-base: #06080f;
+      --bg-surface: rgba(17, 22, 34, 0.65);
+      --bg-surface-hover: rgba(26, 32, 49, 0.8);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-glowing: rgba(56, 189, 248, 0.25);
+      
+      --color-primary: #38bdf8;
+      --color-primary-glow: rgba(56, 189, 248, 0.15);
+      --color-success: #10b981;
+      --color-warning: #f59e0b;
+      --color-danger: #ef4444;
+      --color-text-main: #f3f4f6;
+      --color-text-muted: #9ca3af;
+      
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg-base);
+      color: var(--color-text-main);
+      overflow-x: hidden;
+    }
+
+    * {
+      box-sizing: border-box;
+      transition: all 0.2s ease;
+    }
+
+    body {
+      margin: 0;
+      padding: 2rem;
+      min-height: 100vh;
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(56, 189, 248, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.03) 0%, transparent 40%);
+      background-attachment: fixed;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0,0,0,0.1);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 99px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Layout structure */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand svg {
+      width: 32px;
+      height: 32px;
+      fill: var(--color-primary);
+      filter: drop-shadow(0 0 8px var(--color-primary-glow));
+    }
+
+    .brand h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: -0.025em;
+      background: linear-gradient(to right, #fff, var(--color-primary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand .pill {
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 99px;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+
+    .pill-live {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--color-success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      animation: pulse-live 2s infinite;
+    }
+
+    .pill-offline {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--color-danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    @keyframes pulse-live {
+      0% { opacity: 0.7; }
+      50% { opacity: 1; }
+      100% { opacity: 0.7; }
+    }
+
+    .controls {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    select, input, button {
+      font-family: inherit;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      color: var(--color-text-main);
+      border-radius: 8px;
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    select {
+      cursor: pointer;
+      padding-right: 2rem;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      background-size: 1rem;
+    }
+
+    select:focus, input:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 10px var(--color-primary-glow);
+    }
+
+    button {
+      background: var(--color-primary);
+      color: #000;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2);
+    }
+
+    button:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+
+    button.btn-sec {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--color-text-main);
+      border: 1px solid var(--border-color);
+      box-shadow: none;
+    }
+
+    button.btn-sec:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Dashboard grids */
+    .dashboard-grid {
+      display: grid;
+      gap: 1.5rem;
+      grid-template-columns: repeat(12, 1fr);
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: var(--bg-surface);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    .card:hover {
+      border-color: var(--border-glowing);
+      background: var(--bg-surface-hover);
+    }
+
+    .card h2 {
+      margin-top: 0;
+      margin-bottom: 1.25rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--color-primary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .card h2 span {
+      font-size: 0.8rem;
+      font-weight: 400;
+      color: var(--color-text-muted);
+    }
+
+    /* Colspans */
+    .col-4 { grid-column: span 4; }
+    .col-6 { grid-column: span 6; }
+    .col-8 { grid-column: span 8; }
+    .col-12 { grid-column: span 12; }
+
+    @media (max-width: 1024px) {
+      .col-4, .col-6, .col-8 { grid-column: span 12; }
+    }
+
+    /* Widget specific styling */
+    .search-panel {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      background: rgba(255,255,255,0.01);
+      padding: 1rem;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    .search-panel input {
+      flex: 1;
+      min-width: 260px;
+    }
+
+    /* Active runs list */
+    .run-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      margin-bottom: 0.75rem;
+    }
+
+    .run-item:last-child { margin-bottom: 0; }
+
+    .run-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .run-title {
+      font-weight: 500;
+      font-size: 0.95rem;
+    }
+
+    .run-subtitle {
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .run-trigger {
+      font-size: 0.85rem;
+      color: var(--color-text-muted);
+      margin-top: 0.25rem;
+      max-width: 320px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      text-transform: capitalize;
+    }
+
+    .badge-running { background: rgba(245, 158, 11, 0.15); color: var(--color-warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-completed { background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-failed { background: rgba(239, 68, 68, 0.15); color: var(--color-danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .badge-approval { background: rgba(56, 189, 248, 0.15); color: var(--color-primary); border: 1px solid rgba(56, 189, 248, 0.3); }
+
+    /* Approvals card styling */
+    .approval-item {
+      padding: 1rem;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      margin-bottom: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .approval-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .approval-type {
+      font-size: 0.8rem;
+      color: var(--color-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+
+    .approval-body {
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+
+    .approval-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .approval-actions button {
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+    }
+
+    .approval-actions button.btn-reject {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--color-danger);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      box-shadow: none;
+    }
+    
+    .approval-actions button.btn-reject:hover {
+      background: rgba(239, 68, 68, 0.25);
+    }
+
+    /* Health details */
+    .health-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+    }
+
+    .health-stat {
+      background: rgba(255,255,255,0.02);
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .health-stat .label {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+    }
+
+    .health-stat .value {
+      font-weight: 600;
+      font-size: 1rem;
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    th {
+      color: var(--color-text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.01);
+    }
+
+    a {
+      color: var(--color-primary);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    /* Settings widget */
+    .settings-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .settings-group label {
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+      font-weight: 500;
+    }
+
+    /* Logs feed */
+    .log-feed {
+      max-height: 320px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .log-row {
+      padding: 0.4rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      line-height: 1.4;
+    }
+
+    .log-time {
+      color: var(--color-text-muted);
+      margin-right: 0.5rem;
+    }
+
+    .log-actor {
+      color: var(--color-primary);
+      margin-right: 0.5rem;
+      font-weight: 500;
+    }
+
+    /* Chart SVG */
+    .chart-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 180px;
+    }
+
+    .chart-svg {
+      transform: rotate(-90deg);
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      color: var(--color-text-muted);
+      font-size: 0.9rem;
+      gap: 0.5rem;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
-  <h1>Thekedar <span class="pill" id="ws-status">connecting</span></h1>
-  <div class="search">
-    <input id="nl-q" placeholder="Search runs & audit (NL query)…" />
-    <button type="button" onclick="runNlQuery()">Search</button>
-    <button type="button" onclick="refresh()">Refresh</button>
-  </div>
-  <div class="grid">
-    <div class="card"><h2>Active Runs</h2><pre id="active-runs">Loading…</pre></div>
-    <div class="card"><h2>Pending Approvals</h2><pre id="pending-approvals">Loading…</pre></div>
-    <div class="card"><h2>Workstation Health</h2><pre id="workstation-health">Loading…</pre></div>
-    <div class="card"><h2>Ticket ↔ Code (D1)</h2><pre id="ticket-code">Loading…</pre></div>
-    <div class="card"><h2>PR Pipeline (D1)</h2><pre id="pr-pipeline">Loading…</pre></div>
-    <div class="card"><h2>Cost Summary (D2)</h2><pre id="cost-summary">Loading…</pre></div>
-    <div class="card"><h2>Audit Trail (D2)</h2><pre id="audit-trail">Loading…</pre></div>
-    <div class="card"><h2>Messaging Activity (D2)</h2><pre id="messaging-activity">Loading…</pre></div>
-    <div class="card"><h2>NL Query (D3)</h2><pre id="nl-query">Enter a query above</pre></div>
-  </div>
-  <script>
-    const TENANT = 'default';
-    let authToken = localStorage.getItem('thekedar_token');
 
-    async function ensureToken() {
-      if (authToken) return authToken;
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 2L2 22h20L12 2zm0 3.8L19.3 19H4.7L12 5.8zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/>
+      </svg>
+      <div>
+        <h1>Thekedar</h1>
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+          <span class="pill pill-offline" id="ws-status">Connecting</span>
+          <span class="pill" id="active-tenant-badge" style="background: rgba(255,255,255,0.05); color: var(--color-text-muted); border: 1px solid var(--border-color);">Workspace: default</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="controls">
+      <select id="workspace-select" onchange="switchWorkspace(this.value)">
+        <option value="default">Demo Workspace (default)</option>
+      </select>
+      <button type="button" onclick="refresh()">Sync Now</button>
+    </div>
+  </header>
+
+  <div class="search-panel">
+    <input id="nl-q" placeholder="Semantic search runs, commits, or audit logs..." onkeydown="if(event.key==='Enter') runNlQuery()" />
+    <input id="actor-filter" placeholder="Filter by User (e.g. U123)..." oninput="applyActorFilter()" />
+    <button type="button" onclick="runNlQuery()">Search</button>
+  </div>
+
+  <div class="dashboard-grid">
+
+    <!-- Active Runs -->
+    <div class="card col-4">
+      <h2>Active Pipelines <span id="runs-count">0 active</span></h2>
+      <div id="active-runs" style="flex: 1; overflow-y: auto; max-height: 380px;">
+        <div class="empty-state">Loading pipelines...</div>
+      </div>
+    </div>
+
+    <!-- Pending Approvals -->
+    <div class="card col-4">
+      <h2>Approval Gates <span id="approvals-count">0 pending</span></h2>
+      <div id="pending-approvals" style="flex: 1; overflow-y: auto; max-height: 380px;">
+        <div class="empty-state">No gates awaiting approval</div>
+      </div>
+    </div>
+
+    <!-- Workstation Health -->
+    <div class="card col-4">
+      <h2>Compute & Workstations</h2>
+      <div id="workstation-health" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
+        <div class="empty-state">Loading compute status...</div>
+      </div>
+    </div>
+
+    <!-- Ticket ↔ Code Link -->
+    <div class="card col-8">
+      <h2>Ticket ↔ Branch Mapping <span>Milestone M4 / M7</span></h2>
+      <div style="overflow-x: auto; flex: 1; max-height: 300px;">
+        <table id="ticket-code-table">
+          <thead>
+            <tr>
+              <th>Issue</th>
+              <th>Jira Status</th>
+              <th>Git Branch</th>
+              <th>PR Link</th>
+              <th>CI Checks</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="5" class="empty-state">No mappings active</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Cost Summary -->
+    <div class="card col-4">
+      <h2>Token & Compute Allocation</h2>
+      <div class="chart-container">
+        <svg width="120" height="120" class="chart-svg" id="cost-chart">
+          <circle r="40" cx="60" cy="60" fill="transparent" stroke="#1f293d" stroke-width="20" />
+          <circle id="cost-chart-value" r="40" cx="60" cy="60" fill="transparent" stroke="var(--color-primary)" stroke-width="20" stroke-dasharray="0 251.2" />
+        </svg>
+      </div>
+      <div id="cost-details" style="font-size: 0.85rem; display: flex; justify-content: space-around; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+        <div>LLM Cost: <span id="cost-llm" style="font-weight:600; color: var(--color-primary);">$0.00</span></div>
+        <div>Compute Cost: <span id="cost-compute" style="font-weight:600; color: var(--color-success);">$0.00</span></div>
+      </div>
+    </div>
+
+    <!-- settings panel -->
+    <div class="card col-4">
+      <h2>Workspace Settings <span>Tenant Isolation</span></h2>
+      <div class="settings-group">
+        <label>GitHub Project URL</label>
+        <input id="set-gh-url" placeholder="https://github.com/org/repo" />
+      </div>
+      <div class="settings-group">
+        <label>Jira Project Key</label>
+        <input id="set-jira-key" placeholder="THE" style="width: 100px;" />
+      </div>
+      <div style="display: flex; gap: 0.5rem; font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+        <div>Slack Team: <span id="set-slack-id">-</span></div>
+        <div>WhatsApp: <span id="set-whatsapp-id">-</span></div>
+      </div>
+      <button type="button" onclick="saveSettings()">Save Workspace Configuration</button>
+    </div>
+
+    <!-- Audit Log -->
+    <div class="card col-4">
+      <h2>System Audit Log</h2>
+      <div class="log-feed" id="audit-trail">
+        <div class="empty-state">Loading trail...</div>
+      </div>
+    </div>
+
+    <!-- Messaging logs -->
+    <div class="card col-4">
+      <h2>Messaging Streams</h2>
+      <div class="log-feed" id="messaging-activity">
+        <div class="empty-state">Loading activity feed...</div>
+      </div>
+    </div>
+
+    <!-- Search Results -->
+    <div class="card col-12" id="search-card" style="display:none;">
+      <h2>Semantic Search Results</h2>
+      <div class="log-feed" id="search-results"></div>
+    </div>
+
+  </div>
+
+  <script>
+    let activeTenant = 'default';
+    let authToken = localStorage.getItem('thekedar_token');
+    let allRuns = [];
+    let allAudits = [];
+
+    async function ensureToken(tenant = 'default') {
       const res = await fetch('/api/v1/auth/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenant_id: TENANT }),
+        body: JSON.stringify({ tenant_id: tenant }),
       });
-      if (!res.ok) throw new Error('Auth failed');
+      if (!res.ok) throw new Error('Authentication failed');
       const data = await res.json();
       authToken = data.access_token;
       localStorage.setItem('thekedar_token', authToken);
@@ -56,45 +637,359 @@
     }
 
     async function authFetch(path, options = {}) {
-      const token = await ensureToken();
-      const headers = { ...(options.headers || {}), Authorization: `Bearer ${token}` };
-      return fetch(path, { ...options, headers });
+      if (!authToken) {
+        await ensureToken(activeTenant);
+      }
+      const headers = { 
+        ...(options.headers || {}), 
+        Authorization: `Bearer ${authToken}` 
+      };
+      
+      let res = await fetch(path, { ...options, headers });
+      if (res.status === 401) {
+        // Token expired/invalid, renew it
+        const token = await ensureToken(activeTenant);
+        headers.Authorization = `Bearer ${token}`;
+        res = await fetch(path, { ...options, headers });
+      }
+      return res;
     }
 
-    async function loadWidget(path, elId, key = 'items') {
-      const res = await authFetch(`/api/v1/widgets/${path}`);
-      const data = await res.json();
-      const payload = key === 'raw' ? data : (data[key] ?? data.items ?? data);
-      document.getElementById(elId).textContent = JSON.stringify(payload, null, 2);
+    async function loadWorkspaces() {
+      try {
+        const res = await authFetch('/api/v1/widgets/workspaces');
+        if (!res.ok) return;
+        const data = await res.json();
+        const select = document.getElementById('workspace-select');
+        select.innerHTML = '';
+        
+        data.items.forEach(w => {
+          const opt = document.createElement('option');
+          opt.value = w.tenant_id;
+          opt.textContent = `${w.name} (${w.tenant_id})`;
+          if (w.tenant_id === activeTenant) {
+            opt.selected = true;
+            document.getElementById('set-gh-url').value = w.github_project_url || '';
+            document.getElementById('set-jira-key').value = w.jira_project_key || '';
+            document.getElementById('set-slack-id').textContent = w.slack_team_id || 'none';
+            document.getElementById('set-whatsapp-id').textContent = w.whatsapp_phone_number_id || 'none';
+          }
+          select.appendChild(opt);
+        });
+      } catch (err) {
+        console.error('Failed to load workspaces', err);
+      }
+    }
+
+    async function switchWorkspace(tenantId) {
+      activeTenant = tenantId;
+      document.getElementById('active-tenant-badge').textContent = `Workspace: ${tenantId}`;
+      authToken = null;
+      localStorage.removeItem('thekedar_token');
+      await ensureToken(tenantId);
+      await loadWorkspaces();
+      refresh();
+    }
+
+    async function saveSettings() {
+      const ghUrl = document.getElementById('set-gh-url').value.trim();
+      const jiraKey = document.getElementById('set-jira-key').value.trim();
+      try {
+        const res = await authFetch('/api/v1/widgets/workspaces/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            github_project_url: ghUrl,
+            jira_project_key: jiraKey
+          })
+        });
+        if (res.ok) {
+          alert('Configuration updated successfully!');
+          await loadWorkspaces();
+          refresh();
+        } else {
+          alert('Failed to update workspace configuration.');
+        }
+      } catch (e) {
+        alert('Error: ' + e);
+      }
+    }
+
+    async function handleApproval(id, action) {
+      try {
+        const res = await authFetch(`/api/v1/approvals/${id}/${action}`, {
+          method: 'POST'
+        });
+        if (res.ok) {
+          refresh();
+        } else {
+          alert(`Failed to ${action} approval gate.`);
+        }
+      } catch (err) {
+        alert('Error performing action: ' + err);
+      }
     }
 
     async function refresh() {
       await Promise.all([
-        loadWidget('active-runs', 'active-runs'),
-        loadWidget('pending-approvals', 'pending-approvals'),
-        loadWidget('workstation-health', 'workstation-health'),
-        loadWidget('ticket-code', 'ticket-code'),
-        loadWidget('pr-pipeline', 'pr-pipeline'),
-        loadWidget('cost-summary', 'cost-summary', 'raw'),
-        loadWidget('audit-trail', 'audit-trail'),
-        loadWidget('messaging-activity', 'messaging-activity'),
+        updateRuns(),
+        updateApprovals(),
+        updateHealth(),
+        updateTicketMapping(),
+        updateCosts(),
+        updateLogs(),
+      ]).catch(e => console.error("Error refreshing dashboard widgets", e));
+    }
+
+    async function updateRuns() {
+      const res = await authFetch('/api/v1/widgets/active-runs');
+      const data = await res.json();
+      allRuns = data.items || [];
+      renderRuns(allRuns);
+    }
+
+    function renderRuns(items) {
+      const el = document.getElementById('active-runs');
+      document.getElementById('runs-count').textContent = `${items.length} active`;
+      if (!items.length) {
+        el.innerHTML = '<div class="empty-state">No pipeline runs active</div>';
+        return;
+      }
+      el.innerHTML = items.map(r => `
+        <div class="run-item">
+          <div class="run-info">
+            <span class="run-title">${r.workflow}</span>
+            <span class="run-subtitle">${r.run_id.substring(0, 8)}</span>
+            <span class="run-trigger">Trigger: ${r.trigger_text}</span>
+            <span style="font-size:0.75rem; color:var(--color-primary);">Actor: ${r.user_id}</span>
+          </div>
+          <div>
+            <span class="badge badge-${r.status}">${r.status}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function updateApprovals() {
+      const res = await authFetch('/api/v1/widgets/pending-approvals');
+      const data = await res.json();
+      const items = data.items || [];
+      document.getElementById('approvals-count').textContent = `${items.length} pending`;
+      const el = document.getElementById('pending-approvals');
+      if (!items.length) {
+        el.innerHTML = '<div class="empty-state">No gates awaiting approval</div>';
+        return;
+      }
+      el.innerHTML = items.map(a => `
+        <div class="approval-item">
+          <div class="approval-header">
+            <span class="approval-type">${a.approval_type}</span>
+            <span class="badge badge-approval">Awaiting Gate</span>
+          </div>
+          <div class="approval-body">${a.summary}</div>
+          <div class="approval-actions">
+            <button type="button" onclick="handleApproval('${a.id}', 'approve')">Approve & Resume</button>
+            <button type="button" class="btn-reject" onclick="handleApproval('${a.id}', 'reject')">Reject</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function updateHealth() {
+      const res = await authFetch('/api/v1/widgets/workstation-health');
+      const data = await res.json();
+      const items = data.items || [];
+      const el = document.getElementById('workstation-health');
+      if (!items.length) {
+        el.innerHTML = '<div class="empty-state">No workspaces linked to workstations</div>';
+        return;
+      }
+      const w = items[0];
+      el.innerHTML = `
+        <div class="health-grid">
+          <div class="health-stat">
+            <span class="label">Workstation Config</span>
+            <span class="value" style="font-size:0.85rem; overflow:hidden; text-overflow:ellipsis;">${w.name}</span>
+          </div>
+          <div class="health-stat">
+            <span class="label">Region</span>
+            <span class="value">${w.region}</span>
+          </div>
+          <div class="health-stat">
+            <span class="label">VM State</span>
+            <span class="value" style="color: ${w.state === 'running' ? 'var(--color-success)' : 'var(--color-warning)'}">${w.state}</span>
+          </div>
+          <div class="health-stat">
+            <span class="label">Commits behind main</span>
+            <span class="value">${w.commits_behind_main}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    async function updateTicketMapping() {
+      const res = await authFetch('/api/v1/widgets/ticket-code');
+      const data = await res.json();
+      const items = data.items || [];
+      const tbody = document.querySelector('#ticket-code-table tbody');
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No ticket mappings active</td></tr>';
+        return;
+      }
+      tbody.innerHTML = items.map(t => `
+        <tr>
+          <td><span style="font-weight:600; color:var(--color-primary);">${t.issue_key}</span> <div style="font-size:0.75rem; color:var(--color-text-muted);">${t.issue_summary || ''}</div></td>
+          <td><span class="badge" style="background: rgba(255,255,255,0.05);">${t.issue_status}</span></td>
+          <td><span style="font-family:'JetBrains Mono';">${t.branch_name || '-'}</span></td>
+          <td>${t.pr_url ? `<a href="${t.pr_url}" target="_blank">View PR #${t.pr_number || ''}</a>` : '-'}</td>
+          <td><span class="badge badge-${t.ci_status === 'passed' ? 'completed' : t.ci_status === 'failed' ? 'failed' : 'running'}">${t.ci_status}</span></td>
+        </tr>
+      `).join('');
+    }
+
+    async function updateCosts() {
+      const res = await authFetch('/api/v1/widgets/cost-summary');
+      const data = await res.json();
+      const totals = data.totals_usd || {};
+      const llm = totals.llm || 0;
+      const compute = totals.compute || 0;
+      
+      document.getElementById('cost-llm').textContent = `$${llm.toFixed(2)}`;
+      document.getElementById('cost-compute').textContent = `$${compute.toFixed(2)}`;
+      
+      const total = llm + compute;
+      const pct = total > 0 ? (llm / total) * 251.2 : 0;
+      document.getElementById('cost-chart-value').setAttribute('stroke-dasharray', `${pct} 251.2`);
+    }
+
+    async function updateLogs() {
+      const [resAudit, resMsg] = await Promise.all([
+        authFetch('/api/v1/widgets/audit-trail'),
+        authFetch('/api/v1/widgets/messaging-activity')
       ]);
+      
+      const dataAudit = await resAudit.json();
+      allAudits = dataAudit.items || [];
+      renderAudits(allAudits);
+      
+      const dataMsg = await resMsg.json();
+      const msgItems = dataMsg.items || [];
+      const elMsg = document.getElementById('messaging-activity');
+      if (!msgItems.length) {
+        elMsg.innerHTML = '<div class="empty-state">No message activity yet</div>';
+      } else {
+        elMsg.innerHTML = msgItems.map(m => {
+          const t = new Date(m.created_at).toLocaleTimeString();
+          return `
+            <div class="log-row">
+              <span class="log-time">[${t}]</span>
+              <span style="color: ${m.direction === 'inbound' ? 'var(--color-primary)' : 'var(--color-success)'}">
+                ${m.direction === 'inbound' ? '←' : '→'} [${m.channel}]
+              </span>
+              <span>${m.text}</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function renderAudits(items) {
+      const elAudit = document.getElementById('audit-trail');
+      if (!items.length) {
+        elAudit.innerHTML = '<div class="empty-state">No logs recorded</div>';
+      } else {
+        elAudit.innerHTML = items.map(a => {
+          const t = new Date(a.created_at).toLocaleTimeString();
+          return `
+            <div class="log-row">
+              <span class="log-time">[${t}]</span>
+              <span class="log-actor">${a.actor}</span>
+              <span style="font-weight:600;">${a.action}</span>:
+              <span style="color: var(--color-text-muted);">${a.detail}</span>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function applyActorFilter() {
+      const filter = document.getElementById('actor-filter').value.trim().toLowerCase();
+      if (!filter) {
+        renderRuns(allRuns);
+        renderAudits(allAudits);
+        return;
+      }
+      
+      const filteredRuns = allRuns.filter(r => r.user_id.toLowerCase().includes(filter));
+      renderRuns(filteredRuns);
+      
+      const filteredAudits = allAudits.filter(a => a.actor.toLowerCase().includes(filter));
+      renderAudits(filteredAudits);
     }
 
     async function runNlQuery() {
       const q = document.getElementById('nl-q').value.trim();
-      if (!q) return;
-      const res = await authFetch(`/api/v1/widgets/nl-query?q=${encodeURIComponent(q)}`);
-      const data = await res.json();
-      document.getElementById('nl-query').textContent = JSON.stringify(data.results, null, 2);
+      const card = document.getElementById('search-card');
+      const resultsEl = document.getElementById('search-results');
+      if (!q) {
+        card.style.display = 'none';
+        return;
+      }
+      
+      resultsEl.innerHTML = '<div class="empty-state">Querying semantic indices...</div>';
+      card.style.display = 'block';
+      card.scrollIntoView();
+      
+      try {
+        const res = await authFetch(`/api/v1/widgets/nl-query?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        const results = data.results || [];
+        if (!results.length) {
+          resultsEl.innerHTML = '<div class="empty-state">No semantic matches found</div>';
+          return;
+        }
+        
+        resultsEl.innerHTML = results.map(r => `
+          <div class="log-row">
+            <span class="badge" style="background: rgba(56, 189, 248, 0.1); color: var(--color-primary); text-transform:uppercase; font-size:0.7rem;">${r.type}</span>
+            <span style="font-weight:500; margin-left: 0.5rem;">${r.action || r.id || ''}</span>
+            <span style="color: var(--color-text-muted);">${r.summary || r.detail || ''}</span>
+          </div>
+        `).join('');
+      } catch (err) {
+        resultsEl.innerHTML = `<div class="empty-state" style="color: var(--color-danger)">Search failed: ${err}</div>`;
+      }
     }
 
-    refresh().catch(() => { document.getElementById('ws-status').textContent = 'auth error'; });
-    setInterval(() => refresh().catch(() => {}), 5000);
+    // Initialize
+    async function init() {
+      try {
+        await ensureToken(activeTenant);
+        await loadWorkspaces();
+        refresh();
+        
+        const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+        const ws = new WebSocket(`${wsProtocol}://${location.host}/ws/events`);
+        ws.onopen = () => { 
+          const el = document.getElementById('ws-status');
+          el.textContent = 'live'; 
+          el.className = 'pill pill-live';
+        };
+        ws.onclose = () => { 
+          const el = document.getElementById('ws-status');
+          el.textContent = 'offline'; 
+          el.className = 'pill pill-offline';
+        };
+        ws.onmessage = () => {
+          refresh();
+        };
+      } catch (err) {
+        document.getElementById('ws-status').textContent = 'auth error';
+      }
+    }
 
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`);
-    ws.onopen = () => { document.getElementById('ws-status').textContent = 'live'; };
-    ws.onclose = () => { document.getElementById('ws-status').textContent = 'offline'; };
+    init();
+    setInterval(refresh, 5000);
   </script>
 </body>
 </html>

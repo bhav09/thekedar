@@ -37,7 +37,9 @@ services:
       THEKEDAR_ENVIRONMENT: local
       THEKEDAR_DEMO_MODE: "true"
       THEKEDAR_REDIS_URL: redis://redis:6379/0
-      THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+      THEKEDAR_DATABASE_URL: postgresql+psycopg://thekedar:thekedar@postgres:5432/thekedar
+    volumes:
+      - ./config:/app/config
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,8 +54,10 @@ services:
       THEKEDAR_ENVIRONMENT: local
       THEKEDAR_DEMO_MODE: "true"
       THEKEDAR_REDIS_URL: redis://redis:6379/0
-      THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+      THEKEDAR_DATABASE_URL: postgresql+psycopg://thekedar:thekedar@postgres:5432/thekedar
       THEKEDAR_DASHBOARD_URL: http://dashboard-hub:8081
+    volumes:
+      - ./config:/app/config
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,7 +71,7 @@ services:
     command: ["thekedar-orchestrator", "hibernate"]
     environment:
       THEKEDAR_ENVIRONMENT: local
-      THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+      THEKEDAR_DATABASE_URL: postgresql+psycopg://thekedar:thekedar@postgres:5432/thekedar
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,8 +87,10 @@ services:
     environment:
       THEKEDAR_ENVIRONMENT: local
       THEKEDAR_DEMO_MODE: "true"
-      THEKEDAR_DATABASE_URL: postgresql://thekedar:thekedar@postgres:5432/thekedar
+      THEKEDAR_DATABASE_URL: postgresql+psycopg://thekedar:thekedar@postgres:5432/thekedar
       THEKEDAR_DASHBOARD_URL: http://localhost:8081
+    volumes:
+      - ./config:/app/config
     depends_on:
       postgres:
         condition: service_healthy
