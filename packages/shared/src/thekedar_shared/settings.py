@@ -8,6 +8,13 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from thekedar_shared.exceptions import ConfigurationError
+import sys
+
+
+def _get_env_file() -> str | None:
+    if "pytest" in sys.modules:
+        return None
+    return ".env"
 
 
 class Settings(BaseSettings):
