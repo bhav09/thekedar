@@ -1,34 +1,38 @@
 # <img src="thekedar-logo.png" width="60" height="60" valign="middle" /> Thekedar
 
-Headless MCP orchestrator: connect WhatsApp, Slack, Jira, GitHub, and cloud dev environments so your agent keeps working while your laptop is closed.
+Thekedar is a cloud-powered, headless orchestrator that connects Slack and WhatsApp directly to your codebase, letting AI coding agents run verify-and-publish workflows in sandboxed cloud environments even when your laptop is closed. By combining a three-layer repository understanding index with remote execution sandboxes, interactive safety gates, and isolated parallel worktrees, Thekedar eliminates context bloat, execution pollution, and unreviewed destructive commands.
 
-Thekedar receives messages on public webhooks, ACKs fast, processes work asynchronously, and replies with summaries and PR links (never raw diffs in chat). A unified dashboard shows runs, ticket-to-code traceability, approvals, cost, and audit trails.
+## The Problem Developers Face
 
-## Why Thekedar?
+Modern local-first AI development tools and coding agents present major operational challenges in production:
+* **The "Closed Laptop" Block:** Local CLIs (like Claude Code or Cursor) require developers to keep their machines open, terminal sessions active, and VPNs connected. If your laptop sleeps, the agent stops.
+* **Context Bloat & Token Splurging:** Feeding whole repositories or unbudgeted context packs into LLMs causes extreme hallucinations, slow response times, and massive token budget overruns.
+* **Adversarial & Destructive Commands:** Running autonomous agents locally runs the risk of unchecked shell execution—a single unreviewed `rm -rf` or database drop can wreck developer workspaces.
+* **Concurreny & State Pollution:** Running multiple tasks simultaneously on the same workspace pollutes branch state, corrupts local search indexes, and results in broken builds.
 
-**Thekedar** (ठेकेदार) is Hindi/Urdu for *contractor*: the person who takes responsibility for a build, coordinates workers, and delivers the finished job. That is the role this project plays for your stack. You message from Slack or WhatsApp; Thekedar routes work to agents, runs code on cloud workstations, opens PRs, and reports back. You stay the owner; Thekedar is the headless contractor that keeps the site running when you are offline.
+## The Solution: How Thekedar Solves It
 
-## IDE and Coding Tools
+Thekedar (ठेकेदार - Hindi/Urdu for *contractor*) acts as a headless, remote manager for your AI workforce:
+* **Durable Async Execution:** webhook-ingress returns a `202 Accepted` Fast-ACK within 500ms, offloading the actual run to an asynchronous, durable background queue. Your laptop can close; the worker keeps coding.
+* **Three-Layer Repository Understanding:** Binds low-latency local symbol indexing (Python/TS/JS) and `service_graph` structures with real-time GitHub MCP metadata and execution-only terminal tools, eliminating context hallucinations.
+* **Token-Budgeted Context Packs:** Context packaging dynamically measures character limits. If payload sizes exceed limits, it automatically prunes less relevant symbol maps to fit LLM prompt windows.
+* **Remote Workspace Sandboxing:** All code modifications and verification tests are routed through a `RemoteAdapterExecutor` directly to sandboxed GCP Cloud Workstations—never on your machine.
+* **Interactive Safety & Destructive Gates:** If an agent requests a destructive command (e.g. `rm -rf` or SQL drop), the policy gate pauses the run, raises a critical warning, and drops interactive approval buttons directly in Slack/WhatsApp.
+* **Isolated Parallel Worktrees:** Parallel agent runs are checked out into separate Git worktrees under strict concurrency caps, keeping workspace directories clean and avoiding index conflicts.
 
-`@Coder` runs a **multi-stage pipeline**: global context index, impact assessment, plan approval, IDE-backed coding + tests, completion report, and publish (branch/PR). See [docs/CODING_PIPELINE.md](docs/CODING_PIPELINE.md) and [docs/IDE_SETUP.md](docs/IDE_SETUP.md).
+## Supported IDE & Coding Tools
 
-| Tool | Status | How it relates |
-|------|--------|----------------|
-| **Antigravity SDK** | Primary (`THEKEDAR_ANTIGRAVITY_MODE=sdk`) | Native Python agent orchestration with policy gates |
-| **Claude Code** | Adapter (`THEKEDAR_IDE_ADAPTER=claude`) | CLI on Cloud Workstation or local fallback |
-| **Cursor** | Adapter (`cursor`) | Uses `cursor-agent` or `cursor agent` when installed |
-| **VS Code** | Complete Extension | Bidirectional database task queue polling and executing locally inside VS Code or Code-OSS VM |
-| **Mock** | Default in demo | Commits marker + stub test for OSS onboarding without IDE CLIs |
-
-**Execution surfaces:** GCP Cloud Workstation (staging/prod primary) plus **local dev fallback** when `THEKEDAR_LOCAL_IDE=1` and `THEKEDAR_LOCAL_REPO_PATH` are set.
-
-**Context CLI:** `uv run thekedar context index|status|refresh --repo org/repo`
-
-**Still not in chat:** raw diffs (summaries + dashboard links only). Bifrost MCP gateway remains orchestrator-side; IDEs connect via adapters on the execution plane.
+| Tool | Config Mode | Scope & Execution |
+|---|---|---|
+| **Antigravity SDK** | `THEKEDAR_ANTIGRAVITY_MODE=sdk` | Native Python GCP agent orchestration with policy gates |
+| **Claude Code** | `THEKEDAR_IDE_ADAPTER=claude` | Asynchronous CLI on Cloud Workstations or local fallback |
+| **Cursor** | `THEKEDAR_IDE_ADAPTER=cursor` | Remote editor operations using command line execution |
+| **VS Code** | Complete Extension | Bidirectional task queue polling for optional developer adjunct operations |
+| **Mock** | Default Demo | Fast stub test validation and workflow demonstration |
 
 ## Architecture & How It Works
 
-Thekedar is designed as a **cloud-first headless orchestrator** that splits fast, edge-level ingestion from durable, asynchronous agent execution.
+Thekedar splits fast edge webhooks from robust, sandboxed agent execution.
 
 ### High-Level System Architecture
 
@@ -87,47 +91,22 @@ flowchart TB
 
 ### End-to-End Execution Flow
 
-1. **Ingestion & Ingress Fast-ACK:**
-   * Slack/WhatsApp webhook triggers `webhook-ingress`. Ingress parses, validates signature, and registers an idempotency key.
-   * Instantly returns `202 Accepted` (within 500ms) and pushes the event payload onto the message bus.
+1. **Ingress Ingestion:** Webhook request is validated on `webhook-ingress`, marked with an idempotency key, acknowledged with `202 Accepted` in <500ms, and pushed to the message bus.
+2. **Context Sync & Indexing:** `orchestrator-worker` schedules the run. The pipeline verifies repository freshness (via the SHA freshness contract) and, if stale, triggers self-healing incremental reindexing.
+3. **Impact Assessment & Plan Approvals:** The pipeline generates an `ImpactReport` and an `ExecutionPlan`, which are formatted and sent back as interactive cards for plan approvals on Slack/WhatsApp.
+4. **Sandboxed Remote Coding:** Once approved, the agent executes within an isolated Git worktree on a remote workstation. Any requested high-impact shell command is gated via approval handlers.
+5. **Validation, Sandbox Dry-Run, & PR Publish:** Verification tests execute on the workspace. If opt-in DB sandboxing is enabled, migration scripts are dry-run validated. Upon success, a pull request is generated, and a dashboard link is delivered to the developer.
 
-2. **Asynchronous Orchestration & Context Loading:**
-   * `orchestrator-worker` dequeues the payload and provisions an `AgentRun` entry.
-   * `CoderPipeline` loads the three-layer context index. If stale context is found in staging/prod, self-healing sync and incremental reindexing are automatically enqueued.
+## Core Resiliency Features
 
-3. **Impact Assessment & Plan Approvals:**
-   * LangGraph extracts target symbols, files, and dependencies to compile an `ImpactReport`.
-   * A detailed `ExecutionPlan` is generated and presented interactively inside Slack/WhatsApp for human review.
-   * Once approved, the worker triggers the remote execution router.
+### 1. Self-Healing Context Index
+If context indexes fail to match active workstation HEAD states on production/staging runs, self-healing sync is initiated automatically rather than raising execution errors.
 
-4. **Remote Sandbox Execution:**
-   * All agent modifications are routed via `RemoteAdapterExecutor` to run directly inside a sandboxed GCP Cloud Workstation.
-   * Parallel agent runs are safely isolated using `GitWorktreeManager` under a strict concurrency ceiling (default: 3 concurrent checkouts).
-   * Real-time logs are captured by the SQL-first `RunStep` ledger.
+### 2. Interactive Tool and Destructive Command Policies
+Built-in warning patterns intercept dangerous shell strings to keep repositories intact. Approvals block further agent tool usage until explicit interactive human consensus is recorded.
 
-5. **Safety Verification & Publishing:**
-   * Verification tests run directly on the workstation. If opt-in DB sandboxing is enabled, a dry-run migration and schema check are performed.
-   * A pull request is created on GitHub, and a polished dashboard report link is shared back to the originating chat thread.
+### 3. Isolated Parallel Concurrency (Worktree Isolation)
+The worker isolates concurrent agent requests into separate physical directories using `GitWorktreeManager`, ensuring that concurrent runs are perfectly isolated without polluting file states.
 
-## Technical Features & Resilience
-
-### 1. Three-Layer Repository Understanding Model
-Thekedar maintains complete, deep repo understanding by dividing intelligence into three robust layers:
-* **Primary (Local Context Index):** Low-latency, deep semantic index tracking multi-language symbols (Python/TS/JS) and a high-fidelity `service_graph` extracted from Docker Compose layouts.
-* **Supplementary (GitHub MCP Server):** Real-time, live metadata (e.g., active PRs, issues, file contents) bounded to avoid whole-repo over-ingestion.
-* **Execution (Built-in Tools):** Fine-grained agent operations (view, edit, search) confined strictly to the workspace directory.
-
-### 2. The Freshness Contract & Self-Healing Context
-In staging and production environments, the **SHA Gate** ensures context integrity. If the codebase snapshot does not match the active workstation HEAD, a self-healing process is automatically triggered to sync and incrementally index the repo. Developers can command `"override"` to bypass the gate.
-
-### 3. Token-Budgeted Context Packs
-When feeding codebase context into LLM prompts, context payload serialization automatically measures character boundaries (approximating 1 token $\approx$ 4 characters). If the package exceeds `THEKEDAR_CONTEXT_MAX_TOKENS_PER_PACK` (default: 8000), it iteratively prunes less relevant symbol maps and test lists to fit.
-
-### 4. Interactive Safety and Destructive Command Policy Gates
-The shared policy gate enforces constraints before any side-effecting operation. Additionally, potentially destructive commands (such as `rm -rf`, dropping tables/databases, etc.) are intercepted. If requested mid-run by an agent, the transaction pauses, and a critical warning notification with approval buttons is pushed to the user's chat thread.
-
-### 5. Parallel Worktree Isolation & Concurrency Caps
-To enable multiple parallel runs on the same codebase without directory pollution or index conflicts, `GitWorktreeManager` dynamically checks out isolated workspaces. It automatically prunes worktrees on task completion and rejects runs exceeding the concurrency ceiling to prevent CPU/memory exhaustion.
-
-### 6. Bidirectional VS Code Extension Task Queue
-Our custom VS Code Extension (`extensions/vscode-thekedar`) is an optional developer adjunct. It supports local sync and bidding operations by polling the database task queue, executing local development actions inside the editor frame, and feeding completion status back to the orchestrator.
+### 4. Per-Run Cost and Token Caps
+The `LLMRouter` checks cumulative model usage budgets before each completing call, protecting your workspace from runaway recursive tool loops and unexpected cost spikes.
